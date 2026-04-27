@@ -9,10 +9,14 @@ import OpenAI from 'openai';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3001;
+const FRONTEND_DIST_DIR = path.join(__dirname, '..', 'frontend', 'dist');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'datos');
+const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_DIR, 'index.html');
+const HAS_FRONTEND_BUILD = fs.existsSync(FRONTEND_INDEX_PATH);
 
 // Dirs
-const DATA_DIR = path.join(__dirname, 'datos');
 const SESIONES_DIR = path.join(DATA_DIR, 'sesiones');
 const INDICE_PATH = path.join(DATA_DIR, 'indice', 'indice.json');
 
@@ -179,7 +183,20 @@ app.post('/api/transcribir', upload.single('audio'), async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`FisioApp backend corriendo en http://0.0.0.0:${PORT}`);
+if (HAS_FRONTEND_BUILD) {
+  app.use(express.static(FRONTEND_DIST_DIR));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      next();
+      return;
+    }
+
+    res.sendFile(FRONTEND_INDEX_PATH);
+  });
+}
+
+app.listen(PORT, HOST, () => {
+  console.log(`FisioApp backend corriendo en http://${HOST}:${PORT}`);
   console.log(`Datos en: ${DATA_DIR}`);
 });

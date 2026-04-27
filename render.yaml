@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: clinica
+    runtime: node
+    buildCommand: npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend
+    startCommand: npm run start --prefix backend
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATA_DIR
+        sync: false

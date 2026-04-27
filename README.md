@@ -1,77 +1,73 @@
 # FisioApp
 
-App de revisiones clínicas para fisioterapia. Datos anonimizados, almacenamiento local en red.
+Aplicación clínica para fisioterapia con frontend en React/Vite y backend en Node/Express. Este repositorio conserva solo la versión definitiva de la app.
 
 ## Estructura
 
-```
-fisioapp/
-├── backend/    → Node + Express (puerto 3001)
-│   └── datos/  → carpeta generada automáticamente con sesiones e índice
-└── frontend/   → React + Vite (puerto 5173)
-```
-
-## Configuración inicial
-
-### 1. API Key de OpenAI (Whisper)
-
-Crea un archivo `.env` dentro de `backend/`:
-
-```
-OPENAI_API_KEY=sk-...tu-clave-aquí...
+```text
+clinica/
+├── frontend/   # interfaz React + Vite
+├── backend/    # API Express + PDFs + transcripción
+└── render.yaml # despliegue remoto de una sola app Node
 ```
 
-### 2. Backend
+## Desarrollo local
+
+### 1. Instalar dependencias
 
 ```bash
-cd backend
-npm install
-npm run dev
+npm install --prefix backend
+npm install --prefix frontend
 ```
 
-### 3. Frontend (otra terminal)
+### 2. Configurar variables
+
+Crea `backend/.env`:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+OPENAI_API_KEY=sk-...
 ```
 
-### 4. Abrir en las tablets
+Opcionalmente puedes fijar un directorio de datos distinto:
 
-Desde cualquier tablet en la misma red WiFi:
-
-```
-http://[IP-del-ordenador-servidor]:5173
+```bash
+DATA_DIR=/ruta/a/datos
 ```
 
-Para saber la IP del servidor en macOS/Linux: `ifconfig | grep inet`
-En Windows: `ipconfig`
+### 3. Arrancar la app
 
-## Cómo funciona
+Terminal 1:
 
-### Privacidad y datos
-- El fisioterapeuta asigna una ID codificada a cada paciente (ej: `4F92K`)
-- El único dato personal guardado es la fecha de nacimiento, usada para buscar al paciente
-- La carpeta `datos/` tiene dos partes separadas:
-  - `datos/sesiones/` → informes clínicos por ID
-  - `datos/indice/` → solo contiene ID + fecha de nacimiento (sin nombres)
-- Nada sale a Internet. Todo en red local.
+```bash
+npm run dev --prefix backend
+```
 
-### Flujo de uso
-1. Buscar paciente por fecha de nacimiento → seleccionar su ID
-2. O crear nuevo paciente con ID y fecha de nacimiento
-3. En la ficha: hablar al micrófono → el audio va a Whisper → texto se añade al campo (acumulativo)
-4. Editar manualmente si se necesita
-5. Autoguardado tras cada cambio
-6. Generar PDF → se descarga en el navegador y se guarda en `datos/sesiones/[ID]/`
+Terminal 2:
 
-### Datos guardados por sesión
-Cada visita genera dos archivos con la fecha como nombre:
-- `YYYY-MM-DD.json` → datos en bruto (autoguardado)
-- `YYYY-MM-DD.pdf` → informe generado al pulsar el botón
+```bash
+npm run dev --prefix frontend
+```
 
-## Ampliaciones futuras
-- Añadir nuevas plantillas en el backend y selector en el frontend
-- Autenticación básica para proteger el acceso por red
-- Backup automático de la carpeta `datos/`
+Abre [http://localhost:5173](http://localhost:5173).
+
+## Preview remota
+
+El backend está preparado para servir el frontend compilado, así que en remoto se despliega como una sola app Node.
+
+### Render
+
+1. Conecta este repo de GitHub en Render.
+2. Render detectará `render.yaml`.
+3. Añade `OPENAI_API_KEY` como variable de entorno.
+4. Si quieres persistencia real de datos en producción, monta un disco y apunta `DATA_DIR` a esa ruta.
+
+### Qué hace el despliegue
+
+- Instala `backend/` y `frontend/`
+- Compila el frontend
+- Arranca Express
+- Sirve la SPA y la API bajo el mismo dominio
+
+## Nota sobre datos
+
+En local, los datos se guardan en `backend/datos/`. En una preview remota sin disco persistente, los archivos pueden perderse al reiniciar el servicio.
