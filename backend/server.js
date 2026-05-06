@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3001;
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const FRONTEND_DIST_DIR = path.join(__dirname, '..', 'frontend', 'dist');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'datos');
 const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_DIR, 'index.html');
@@ -47,6 +48,13 @@ function sesionPath(id, fecha) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, `${fecha}.json`);
 }
+
+// ── Acceso básico ────────────────────────────────────────────────────────────
+app.post('/api/login', (req, res) => {
+  const { password } = req.body || {};
+  const success = Boolean(APP_PASSWORD) && password === APP_PASSWORD;
+  res.json({ success });
+});
 
 // ── Pacientes: crear ──────────────────────────────────────────────────────────
 app.post('/api/pacientes', (req, res) => {

@@ -26,6 +26,7 @@ Crea `backend/.env`:
 
 ```bash
 OPENAI_API_KEY=sk-...
+APP_PASSWORD=2026
 ```
 
 Opcionalmente puedes fijar un directorio de datos distinto:
@@ -59,7 +60,8 @@ El backend está preparado para servir el frontend compilado, así que en remoto
 1. Conecta este repo de GitHub en Render.
 2. Render detectará `render.yaml`.
 3. Añade `OPENAI_API_KEY` como variable de entorno.
-4. Si quieres persistencia real de datos en producción, monta un disco y apunta `DATA_DIR` a esa ruta.
+4. Añade también `APP_PASSWORD`.
+5. Si quieres persistencia real de datos en producción, monta un disco y apunta `DATA_DIR` a esa ruta.
 
 ### Qué hace el despliegue
 
@@ -71,3 +73,43 @@ El backend está preparado para servir el frontend compilado, así que en remoto
 ## Nota sobre datos
 
 En local, los datos se guardan en `backend/datos/`. En una preview remota sin disco persistente, los archivos pueden perderse al reiniciar el servicio.
+
+## Autenticación básica
+
+- La app incluye una pantalla de acceso simple.
+- La validación de la contraseña se hace en el backend mediante `POST /api/login`.
+- La contraseña no se guarda en el frontend.
+- Tras un login correcto, el frontend conserva una sesión simple en `localStorage`.
+
+### Configuración
+
+Define estas variables en `backend/.env`:
+
+```bash
+OPENAI_API_KEY=sk-...
+APP_PASSWORD=2026
+DATA_DIR=./datos
+```
+
+### Arranque
+
+```bash
+npm install --prefix backend
+npm install --prefix frontend
+npm run dev --prefix backend
+npm run dev --prefix frontend
+```
+
+O para servir la versión compilada desde Node:
+
+```bash
+npm run build
+APP_PASSWORD=2026 npm start --prefix backend
+```
+
+### Archivos modificados
+
+- `backend/server.js`
+- `backend/.env.example`
+- `frontend/src/App.jsx`
+- `README.md`
