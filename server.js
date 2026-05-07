@@ -250,7 +250,8 @@ app.post('/api/sesiones/:id', (req, res) => {
   const indice = leerIndice();
   if (!indice[id]) return res.status(404).json({ error: 'Paciente no encontrado' });
 
-  const fecha = fechaHoy();
+  const fechaSolicitada = normalizeFechaNacimiento(req.body?.fecha);
+  const fecha = fechaSolicitada || fechaHoy();
   const filePath = sesionPath(id, fecha);
   const datos = req.body;
 

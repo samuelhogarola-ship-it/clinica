@@ -240,6 +240,10 @@ function hydrateFichaCampos(data = {}) {
   return merged;
 }
 
+function sesionEsEditablePorDefecto(fecha) {
+  return fecha === 'nueva' || fecha === fechaHoy();
+}
+
 function VistaLogin({ onLoginCorrecto }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -308,7 +312,7 @@ function VistaLogin({ onLoginCorrecto }) {
 }
 
 // ── Componente: Campo con grabación ───────────────────────────────────────────
-function CampoGrabable({ label, value, onChange, placeholder }) {
+function CampoGrabable({ label, value, onChange, placeholder, readOnly = false }) {
   const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
   const mediaRef = useRef(null);
@@ -368,34 +372,37 @@ function CampoGrabable({ label, value, onChange, placeholder }) {
               grabando...
             </span>
           )}
-          <button
-            onClick={grabando ? detenerGrabacion : iniciarGrabacion}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
-              fontSize: 12, border: '1px solid', borderRadius: 'var(--radius-sm)',
-              cursor: 'pointer', transition: 'all 0.15s',
-              background: grabando ? 'var(--teal-pale)' : 'transparent',
-              color: grabando ? 'var(--teal-mid)' : 'var(--gray-600)',
-              borderColor: grabando ? 'var(--teal-light)' : 'var(--border)',
-            }}
-          >
-            {grabando ? <IconStop size={13} /> : <IconMic size={13} />}
-            {grabando ? 'Detener' : 'Grabar'}
-          </button>
+          {!readOnly && (
+            <button
+              onClick={grabando ? detenerGrabacion : iniciarGrabacion}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+                fontSize: 12, border: '1px solid', borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer', transition: 'all 0.15s',
+                background: grabando ? 'var(--teal-pale)' : 'transparent',
+                color: grabando ? 'var(--teal-mid)' : 'var(--gray-600)',
+                borderColor: grabando ? 'var(--teal-light)' : 'var(--border)',
+              }}
+            >
+              {grabando ? <IconStop size={13} /> : <IconMic size={13} />}
+              {grabando ? 'Detener' : 'Grabar'}
+            </button>
+          )}
         </div>
       </div>
       <textarea
-        style={s.textarea}
+        style={{ ...s.textarea, background: readOnly ? 'var(--surface)' : s.textarea.background }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
       />
       {error && <p style={{ fontSize: 12, color: '#D85A30', marginTop: 4 }}>{error}</p>}
     </div>
   );
 }
 
-function CampoFicha({ label, value, onChange, placeholder, multiline = false, grabable = false }) {
+function CampoFicha({ label, value, onChange, placeholder, multiline = false, grabable = false, readOnly = false }) {
   if (multiline && grabable) {
     return (
       <CampoGrabable
@@ -403,6 +410,7 @@ function CampoFicha({ label, value, onChange, placeholder, multiline = false, gr
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        readOnly={readOnly}
       />
     );
   }
@@ -412,10 +420,11 @@ function CampoFicha({ label, value, onChange, placeholder, multiline = false, gr
       <div style={{ marginBottom: 20 }}>
         <label style={s.label}>{label}</label>
         <textarea
-          style={s.textarea}
+          style={{ ...s.textarea, background: readOnly ? 'var(--surface)' : s.textarea.background }}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          readOnly={readOnly}
         />
       </div>
     );
@@ -425,10 +434,11 @@ function CampoFicha({ label, value, onChange, placeholder, multiline = false, gr
     <div style={{ marginBottom: 16 }}>
       <label style={s.label}>{label}</label>
       <input
-        style={s.input}
+        style={{ ...s.input, background: readOnly ? 'var(--surface)' : s.input.background }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
       />
     </div>
   );
@@ -672,6 +682,8 @@ function VistaFicha({ pacienteId, onVolver }) {
   const [sesiones, setSesiones] = useState([]);
   const [sesionActiva, setSesionActiva] = useState(null); // fecha ISO o 'nueva'
   const [campos, setCampos] = useState(FICHA_DEFAULTS);
+  const [camposOriginales, setCamposOriginales] = useState(FICHA_DEFAULTS);
+  const [editable, setEditable] = useState(true);
   const [guardado, setGuardado] = useState(false);
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [errorPDF, setErrorPDF] = useState('');
@@ -689,23 +701,32 @@ function VistaFicha({ pacienteId, onVolver }) {
           cargarSesion(hoy);
         } else {
           setSesionActiva('nueva');
+          setEditable(true);
         }
       })
-      .catch(() => setSesionActiva('nueva'));
+      .catch(() => {
+        setSesionActiva('nueva');
+        setEditable(true);
+      });
   }, [pacienteId]);
 
   const cargarSesion = (fecha) => {
     apiFetch(`/sesiones/${pacienteId}/${fecha}`)
       .then(r => r.json())
       .then(d => {
-        setCampos(hydrateFichaCampos(d));
+        const hidratados = hydrateFichaCampos(d);
+        setCampos(hidratados);
+        setCamposOriginales(hidratados);
         setSesionActiva(fecha);
+        setEditable(sesionEsEditablePorDefecto(fecha));
       });
   };
 
   const nuevaSesion = () => {
     setCampos(FICHA_DEFAULTS);
+    setCamposOriginales(FICHA_DEFAULTS);
     setSesionActiva('nueva');
+    setEditable(true);
   };
 
   // Autoguardado con debounce
@@ -713,7 +734,10 @@ function VistaFicha({ pacienteId, onVolver }) {
     await apiFetch(`/sesiones/${pacienteId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        fecha: sesionActiva !== 'nueva' ? sesionActiva : fechaHoy(),
+      }),
     });
     setGuardado(true);
     setTimeout(() => setGuardado(false), 2000);
@@ -721,17 +745,37 @@ function VistaFicha({ pacienteId, onVolver }) {
     const res = await apiFetch(`/sesiones/${pacienteId}`);
     const d = await res.json();
     setSesiones(d.sesiones || []);
-    setSesionActiva(fechaHoy());
-  }, [pacienteId]);
+    const fechaGuardada = sesionActiva !== 'nueva' ? sesionActiva : fechaHoy();
+    setSesionActiva(fechaGuardada);
+    setCamposOriginales(data);
+    if (fechaGuardada !== fechaHoy()) {
+      setEditable(false);
+    }
+  }, [pacienteId, sesionActiva]);
 
   const debouncedGuardar = useCallback(debounce(guardarAhora, 900), [guardarAhora]);
 
   const actualizarCampo = (campo, valor) => {
+    if (!editable) return;
     // Si valor es función (de la grabación acumulativa)
     const nuevoValor = typeof valor === 'function' ? valor(campos[campo]) : valor;
     const nuevoCampos = { ...campos, [campo]: nuevoValor };
     setCampos(nuevoCampos);
-    debouncedGuardar(nuevoCampos);
+
+    if (sesionEsEditablePorDefecto(sesionActiva)) {
+      debouncedGuardar(nuevoCampos);
+    }
+  };
+
+  const guardarSesionActual = async () => {
+    if (!editable) return;
+    await guardarAhora(campos);
+  };
+
+  const cancelarEdicion = () => {
+    setCampos(camposOriginales);
+    setEditable(false);
+    setGuardado(false);
   };
 
   const generarPDF = async () => {
@@ -787,11 +831,37 @@ function VistaFicha({ pacienteId, onVolver }) {
           <span style={{ ...s.savePill, opacity: guardado ? 1 : 0 }}>
             <IconCheck size={13} /> guardado
           </span>
+          {!editable && sesionActiva !== 'nueva' && (
+            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>solo lectura</span>
+          )}
+          {editable && sesionActiva === 'nueva' && (
+            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>guardado automático</span>
+          )}
+          {editable && sesionActiva !== 'nueva' && (
+            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>cambios locales hasta guardar</span>
+          )}
         </div>
-        <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
-          <IconPDF size={15} />
-          {generandoPDF ? 'Generando...' : 'Generar PDF'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!editable && sesionActiva !== 'nueva' && (
+            <button style={s.btnSecondary} onClick={() => setEditable(true)}>
+              Editar
+            </button>
+          )}
+          {editable && sesionActiva !== 'nueva' && (
+            <>
+              <button style={s.btnSecondary} onClick={cancelarEdicion}>
+                Cancelar
+              </button>
+              <button style={s.btnPrimary} onClick={guardarSesionActual}>
+                Guardar
+              </button>
+            </>
+          )}
+          <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
+            <IconPDF size={15} />
+            {generandoPDF ? 'Generando...' : 'Generar PDF'}
+          </button>
+        </div>
       </div>
 
       {/* Historial + nueva sesión */}
@@ -837,66 +907,77 @@ function VistaFicha({ pacienteId, onVolver }) {
             value={campos.apellidos}
             onChange={(v) => actualizarCampo('apellidos', v)}
             placeholder="Apellidos del paciente"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Nombre"
             value={campos.nombre}
             onChange={(v) => actualizarCampo('nombre', v)}
             placeholder="Nombre del paciente"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Edad"
             value={campos.edad}
             onChange={(v) => actualizarCampo('edad', v)}
             placeholder="Edad"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Sexo"
             value={campos.sexo}
             onChange={(v) => actualizarCampo('sexo', v)}
             placeholder="Sexo"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Profesión"
             value={campos.profesion}
             onChange={(v) => actualizarCampo('profesion', v)}
             placeholder="Profesión"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Altura / Peso"
             value={campos.alturaPeso}
             onChange={(v) => actualizarCampo('alturaPeso', v)}
             placeholder="Altura y peso"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Diagnóstico médico"
             value={campos.diagnosticoMedico}
             onChange={(v) => actualizarCampo('diagnosticoMedico', v)}
             placeholder="Diagnóstico médico"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Fecha inicial de anomalía"
             value={campos.fechaInicialAnomalia}
             onChange={(v) => actualizarCampo('fechaInicialAnomalia', v)}
             placeholder="Fecha inicial"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Tratamientos afines"
             value={campos.tratamientosAfines}
             onChange={(v) => actualizarCampo('tratamientosAfines', v)}
             placeholder="Tratamientos afines"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Medicación anterior / actual"
             value={campos.medicacion}
             onChange={(v) => actualizarCampo('medicacion', v)}
             placeholder="Medicación"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Prueba de imagen"
             value={campos.pruebaImagen}
             onChange={(v) => actualizarCampo('pruebaImagen', v)}
             placeholder="Prueba de imagen"
+            readOnly={!editable}
           />
         </div>
       </div>
@@ -912,6 +993,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Historia clínica"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Anamnesis"
@@ -920,6 +1002,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Anamnesis"
           multiline
           grabable
+          readOnly={!editable}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <CampoFicha
@@ -927,12 +1010,14 @@ function VistaFicha({ pacienteId, onVolver }) {
             value={campos.antecedentesALAV}
             onChange={(v) => actualizarCampo('antecedentesALAV', v)}
             placeholder="Antecedentes AL o AV"
+            readOnly={!editable}
           />
           <CampoFicha
             label="Antecedentes AQ"
             value={campos.antecedentesAQ}
             onChange={(v) => actualizarCampo('antecedentesAQ', v)}
             placeholder="Antecedentes AQ"
+            readOnly={!editable}
           />
         </div>
         <CampoFicha
@@ -942,6 +1027,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Inspección y observación"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Palpación diagnóstica"
@@ -950,6 +1036,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Palpación diagnóstica"
           multiline
           grabable
+          readOnly={!editable}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <CampoFicha
@@ -957,12 +1044,14 @@ function VistaFicha({ pacienteId, onVolver }) {
             value={campos.sensibilidad}
             onChange={(v) => actualizarCampo('sensibilidad', v)}
             placeholder="Sensibilidad"
+            readOnly={!editable}
           />
           <CampoFicha
             label="PGS"
             value={campos.pgs}
             onChange={(v) => actualizarCampo('pgs', v)}
             placeholder="PGS"
+            readOnly={!editable}
           />
         </div>
         <CampoFicha
@@ -971,6 +1060,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('balanceMuscular', v)}
           placeholder="MMSS / MMII / Tronco"
           multiline
+          readOnly={!editable}
         />
         <CampoFicha
           label="Balance articular / movilidad + disfunciones"
@@ -979,6 +1069,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Balance articular y disfunciones"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Datos de interés"
@@ -986,6 +1077,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('datosInteres', v)}
           placeholder="Datos de interés"
           multiline
+          readOnly={!editable}
         />
         <CampoFicha
           label="Valoración funcional"
@@ -994,6 +1086,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Valoración funcional"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Pruebas específicas"
@@ -1001,6 +1094,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('pruebasEspecificas', v)}
           placeholder="Pruebas específicas"
           multiline
+          readOnly={!editable}
         />
       </div>
 
@@ -1015,6 +1109,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Problemas fisioterapéuticos"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Programa de fisioterapia"
@@ -1022,6 +1117,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('programaFisioterapia', v)}
           placeholder="Programa de fisioterapia"
           multiline
+          readOnly={!editable}
         />
         <CampoFicha
           label="Plan de tratamiento"
@@ -1030,6 +1126,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Plan de tratamiento"
           multiline
           grabable
+          readOnly={!editable}
         />
         <CampoFicha
           label="Recomendaciones a la familia"
@@ -1037,6 +1134,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('recomendacionesFamilia', v)}
           placeholder="Recomendaciones a la familia"
           multiline
+          readOnly={!editable}
         />
         <CampoFicha
           label="Objetivos fisioterapéuticos"
@@ -1044,6 +1142,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('objetivosFisioterapeuticos', v)}
           placeholder="Objetivos fisioterapéuticos"
           multiline
+          readOnly={!editable}
         />
         <CampoFicha
           label="Evolución, exploración y tratamiento"
@@ -1052,6 +1151,7 @@ function VistaFicha({ pacienteId, onVolver }) {
           placeholder="Evolución, exploración y tratamiento"
           multiline
           grabable
+          readOnly={!editable}
         />
         {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 4 }}>{errorPDF}</p>}
         {infoPDF && (
