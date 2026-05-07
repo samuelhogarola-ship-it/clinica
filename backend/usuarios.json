@@ -1,0 +1,15 @@
+[
+  {
+    "id": "SUADMIN",
+    "username": "susana",
+    "role": "admin",
+    "displayName": "Susana"
+  },
+  {
+    "id": "MR600",
+    "username": "mario",
+    "role": "fisio",
+    "displayName": "Mario Roldán",
+    "collegiateNumber": "13600"
+  }
+]
