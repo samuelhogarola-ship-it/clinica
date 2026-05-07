@@ -44,6 +44,42 @@ const debounce = (fn, ms) => {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 };
 
+const esFechaValida = (year, month, day) => {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
+const normalizeFechaNacimiento = (value) => {
+  if (typeof value !== 'string') return '';
+
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  let match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    const y = Number(year);
+    const m = Number(month);
+    const d = Number(day);
+    return esFechaValida(y, m, d) ? `${year}-${month}-${day}` : '';
+  }
+
+  match = trimmed.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    const y = Number(year);
+    const m = Number(month);
+    const d = Number(day);
+    return esFechaValida(y, m, d) ? `${year}-${month}-${day}` : '';
+  }
+
+  return '';
+};
+
 // ── Iconos SVG inline ─────────────────────────────────────────────────────────
 const IconMic = ({ size = 16, color = 'currentColor' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -160,6 +196,49 @@ const s = {
   authText: { color: 'var(--gray-600)', fontSize: 14, marginBottom: 20 },
   authError: { fontSize: 13, color: '#A14B2E', marginTop: 12 },
 };
+
+const FICHA_DEFAULTS = {
+  apellidos: '',
+  nombre: '',
+  edad: '',
+  sexo: '',
+  profesion: '',
+  alturaPeso: '',
+  diagnosticoMedico: '',
+  fechaInicialAnomalia: '',
+  tratamientosAfines: '',
+  medicacion: '',
+  pruebaImagen: '',
+  historiaClinica: '',
+  anamnesis: '',
+  antecedentesALAV: '',
+  antecedentesAQ: '',
+  inspeccionObservacion: '',
+  palpacionDiagnostica: '',
+  sensibilidad: '',
+  pgs: '',
+  balanceMuscular: '',
+  balanceArticular: '',
+  datosInteres: '',
+  valoracionFuncional: '',
+  pruebasEspecificas: '',
+  problemasFisioterapeuticos: '',
+  programaFisioterapia: '',
+  planTratamiento: '',
+  recomendacionesFamilia: '',
+  objetivosFisioterapeuticos: '',
+  evolucionExploracionTratamiento: '',
+};
+
+function hydrateFichaCampos(data = {}) {
+  const merged = { ...FICHA_DEFAULTS, ...data };
+
+  if (!merged.anamnesis && data.sintomas) merged.anamnesis = data.sintomas;
+  if (!merged.diagnosticoMedico && data.diagnostico) merged.diagnosticoMedico = data.diagnostico;
+  if (!merged.planTratamiento && data.tratamiento) merged.planTratamiento = data.tratamiento;
+
+  return merged;
+}
 
 function VistaLogin({ onLoginCorrecto }) {
   const [password, setPassword] = useState('');
@@ -316,20 +395,94 @@ function CampoGrabable({ label, value, onChange, placeholder }) {
   );
 }
 
+function CampoFicha({ label, value, onChange, placeholder, multiline = false, grabable = false }) {
+  if (multiline && grabable) {
+    return (
+      <CampoGrabable
+        label={label}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  if (multiline) {
+    return (
+      <div style={{ marginBottom: 20 }}>
+        <label style={s.label}>{label}</label>
+        <textarea
+          style={s.textarea}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={s.label}>{label}</label>
+      <input
+        style={s.input}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
 // ── Vista: Inicio / Buscador ──────────────────────────────────────────────────
 function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
   const [fecha, setFecha] = useState('');
   const [resultados, setResultados] = useState([]);
+  const [pacientes, setPacientes] = useState([]);
   const [buscado, setBuscado] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [cargandoPacientes, setCargandoPacientes] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const cargarPacientes = async () => {
+      setCargandoPacientes(true);
+      try {
+        const res = await apiFetch('/pacientes');
+        const data = await res.json();
+        if (!cancelled) {
+          setPacientes(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setPacientes([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setCargandoPacientes(false);
+        }
+      }
+    };
+
+    cargarPacientes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const buscar = async () => {
-    if (!fecha) return;
+    const isoFecha = normalizeFechaNacimiento(fecha);
+    if (!isoFecha) {
+      setResultados([]);
+      setBuscado(Boolean(fecha.trim()));
+      return;
+    }
+
     setCargando(true);
     setBuscado(false);
-    // Convertir DD/MM/AAAA → YYYY-MM-DD para el backend
-    const partes = fecha.split('/');
-    const isoFecha = partes.length === 3 ? `${partes[2]}-${partes[1]}-${partes[0]}` : fecha;
+
     try {
       const res = await apiFetch(`/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
       const data = await res.json();
@@ -354,12 +507,12 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         <div style={s.cardHeader}>
           <span style={s.cardTitle}>Buscar paciente</span>
         </div>
-        <label style={s.label}>Fecha de nacimiento (DD/MM/AAAA)</label>
+        <label style={s.label}>Fecha de nacimiento (DD/MM/YYYY, DD-MM-YYYY o YYYY-MM-DD)</label>
         <div style={{ display: 'flex', gap: 10 }}>
           <input
             style={{ ...s.input, flex: 1 }}
             type="text"
-            placeholder="ej: 15/03/1985"
+            placeholder="ej: 24/09/1991"
             value={fecha}
             onChange={e => setFecha(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && buscar()}
@@ -406,6 +559,38 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
           Crear paciente
         </button>
       </div>
+
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Pacientes existentes</span>
+        </div>
+
+        {cargandoPacientes ? (
+          <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>Cargando pacientes...</p>
+        ) : pacientes.length === 0 ? (
+          <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>No hay pacientes guardados.</p>
+        ) : (
+          pacientes.map((paciente) => (
+            <button
+              key={paciente.id}
+              onClick={() => onSeleccionarPaciente(paciente.id)}
+              style={{
+                width: '100%', textAlign: 'left', padding: '12px 14px',
+                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg)', cursor: 'pointer', marginBottom: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--teal-mid)' }}>
+                ID: {paciente.id}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
+                {paciente.sesiones.length} {paciente.sesiones.length === 1 ? 'sesión' : 'sesiones'}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -420,10 +605,8 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
   const crear = async () => {
     setError('');
     if (!id.trim() || !fecha.trim()) { setError('Completa todos los campos.'); return; }
-    // Convertir DD/MM/AAAA → YYYY-MM-DD
-    const partes = fecha.split('/');
-    if (partes.length !== 3) { setError('Formato de fecha inválido (DD/MM/AAAA)'); return; }
-    const isoFecha = `${partes[2]}-${partes[1]}-${partes[0]}`;
+    const isoFecha = normalizeFechaNacimiento(fecha);
+    if (!isoFecha) { setError('Formato de fecha inválido'); return; }
     setCargando(true);
     try {
       const res = await apiFetch('/pacientes', {
@@ -488,10 +671,10 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
 function VistaFicha({ pacienteId, onVolver }) {
   const [sesiones, setSesiones] = useState([]);
   const [sesionActiva, setSesionActiva] = useState(null); // fecha ISO o 'nueva'
-  const [campos, setCampos] = useState({ sintomas: '', diagnostico: '', tratamiento: '' });
+  const [campos, setCampos] = useState(FICHA_DEFAULTS);
   const [guardado, setGuardado] = useState(false);
   const [generandoPDF, setGenerandoPDF] = useState(false);
-  const autoguardadoRef = useRef(null);
+  const [errorPDF, setErrorPDF] = useState('');
 
   // Cargar sesiones del paciente
   useEffect(() => {
@@ -514,13 +697,13 @@ function VistaFicha({ pacienteId, onVolver }) {
     apiFetch(`/sesiones/${pacienteId}/${fecha}`)
       .then(r => r.json())
       .then(d => {
-        setCampos({ sintomas: d.sintomas || '', diagnostico: d.diagnostico || '', tratamiento: d.tratamiento || '' });
+        setCampos(hydrateFichaCampos(d));
         setSesionActiva(fecha);
       });
   };
 
   const nuevaSesion = () => {
-    setCampos({ sintomas: '', diagnostico: '', tratamiento: '' });
+    setCampos(FICHA_DEFAULTS);
     setSesionActiva('nueva');
   };
 
@@ -552,21 +735,34 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   const generarPDF = async () => {
     setGenerandoPDF(true);
+    setErrorPDF('');
     try {
       const res = await apiFetch(`/pdf/${pacienteId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...campos, fecha: sesionActiva !== 'nueva' ? sesionActiva : fechaHoy() }),
       });
+
+      if (!res.ok) {
+        throw new Error('No se pudo generar el PDF');
+      }
+
       const blob = await res.blob();
+      if (!blob || blob.size === 0) {
+        throw new Error('El PDF llegó vacío');
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `${pacienteId}_${sesionActiva !== 'nueva' ? sesionActiva : fechaHoy()}.pdf`;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error(e);
+      setErrorPDF('No se pudo generar o descargar el PDF.');
     } finally {
       setGenerandoPDF(false);
     }
@@ -621,30 +817,234 @@ function VistaFicha({ pacienteId, onVolver }) {
       {/* Plantilla: Revisión general */}
       <div style={s.card}>
         <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Revisión general</span>
+          <span style={s.cardTitle}>Registro de fisioterapia</span>
           <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
             {sesionActiva === 'nueva' ? formatFecha(fechaHoy()) : sesionActiva ? formatFecha(sesionActiva) : ''}
           </span>
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <CampoFicha
+            label="Apellidos"
+            value={campos.apellidos}
+            onChange={(v) => actualizarCampo('apellidos', v)}
+            placeholder="Apellidos del paciente"
+          />
+          <CampoFicha
+            label="Nombre"
+            value={campos.nombre}
+            onChange={(v) => actualizarCampo('nombre', v)}
+            placeholder="Nombre del paciente"
+          />
+          <CampoFicha
+            label="Edad"
+            value={campos.edad}
+            onChange={(v) => actualizarCampo('edad', v)}
+            placeholder="Edad"
+          />
+          <CampoFicha
+            label="Sexo"
+            value={campos.sexo}
+            onChange={(v) => actualizarCampo('sexo', v)}
+            placeholder="Sexo"
+          />
+          <CampoFicha
+            label="Profesión"
+            value={campos.profesion}
+            onChange={(v) => actualizarCampo('profesion', v)}
+            placeholder="Profesión"
+          />
+          <CampoFicha
+            label="Altura / Peso"
+            value={campos.alturaPeso}
+            onChange={(v) => actualizarCampo('alturaPeso', v)}
+            placeholder="Altura y peso"
+          />
+          <CampoFicha
+            label="Diagnóstico médico"
+            value={campos.diagnosticoMedico}
+            onChange={(v) => actualizarCampo('diagnosticoMedico', v)}
+            placeholder="Diagnóstico médico"
+          />
+          <CampoFicha
+            label="Fecha inicial de anomalía"
+            value={campos.fechaInicialAnomalia}
+            onChange={(v) => actualizarCampo('fechaInicialAnomalia', v)}
+            placeholder="Fecha inicial"
+          />
+          <CampoFicha
+            label="Tratamientos afines"
+            value={campos.tratamientosAfines}
+            onChange={(v) => actualizarCampo('tratamientosAfines', v)}
+            placeholder="Tratamientos afines"
+          />
+          <CampoFicha
+            label="Medicación anterior / actual"
+            value={campos.medicacion}
+            onChange={(v) => actualizarCampo('medicacion', v)}
+            placeholder="Medicación"
+          />
+          <CampoFicha
+            label="Prueba de imagen"
+            value={campos.pruebaImagen}
+            onChange={(v) => actualizarCampo('pruebaImagen', v)}
+            placeholder="Prueba de imagen"
+          />
+        </div>
+      </div>
 
-        <CampoGrabable
-          label="Síntomas actuales"
-          value={campos.sintomas}
-          onChange={(v) => actualizarCampo('sintomas', v)}
-          placeholder="Habla o escribe los síntomas del paciente..."
+      <div style={s.card}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Historia clínica y exploración</span>
+        </div>
+        <CampoFicha
+          label="Historia clínica"
+          value={campos.historiaClinica}
+          onChange={(v) => actualizarCampo('historiaClinica', v)}
+          placeholder="Historia clínica"
+          multiline
+          grabable
         />
-        <CampoGrabable
-          label="Diagnóstico"
-          value={campos.diagnostico}
-          onChange={(v) => actualizarCampo('diagnostico', v)}
-          placeholder="Habla o escribe el diagnóstico..."
+        <CampoFicha
+          label="Anamnesis"
+          value={campos.anamnesis}
+          onChange={(v) => actualizarCampo('anamnesis', v)}
+          placeholder="Anamnesis"
+          multiline
+          grabable
         />
-        <CampoGrabable
-          label="Tratamiento"
-          value={campos.tratamiento}
-          onChange={(v) => actualizarCampo('tratamiento', v)}
-          placeholder="Habla o escribe el plan de tratamiento..."
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <CampoFicha
+            label="Antecedentes AL o AV"
+            value={campos.antecedentesALAV}
+            onChange={(v) => actualizarCampo('antecedentesALAV', v)}
+            placeholder="Antecedentes AL o AV"
+          />
+          <CampoFicha
+            label="Antecedentes AQ"
+            value={campos.antecedentesAQ}
+            onChange={(v) => actualizarCampo('antecedentesAQ', v)}
+            placeholder="Antecedentes AQ"
+          />
+        </div>
+        <CampoFicha
+          label="Inspección / observación"
+          value={campos.inspeccionObservacion}
+          onChange={(v) => actualizarCampo('inspeccionObservacion', v)}
+          placeholder="Inspección y observación"
+          multiline
+          grabable
         />
+        <CampoFicha
+          label="Palpación diagnóstica"
+          value={campos.palpacionDiagnostica}
+          onChange={(v) => actualizarCampo('palpacionDiagnostica', v)}
+          placeholder="Palpación diagnóstica"
+          multiline
+          grabable
+        />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <CampoFicha
+            label="Sensibilidad en"
+            value={campos.sensibilidad}
+            onChange={(v) => actualizarCampo('sensibilidad', v)}
+            placeholder="Sensibilidad"
+          />
+          <CampoFicha
+            label="PGS"
+            value={campos.pgs}
+            onChange={(v) => actualizarCampo('pgs', v)}
+            placeholder="PGS"
+          />
+        </div>
+        <CampoFicha
+          label="Balance muscular"
+          value={campos.balanceMuscular}
+          onChange={(v) => actualizarCampo('balanceMuscular', v)}
+          placeholder="MMSS / MMII / Tronco"
+          multiline
+        />
+        <CampoFicha
+          label="Balance articular / movilidad + disfunciones"
+          value={campos.balanceArticular}
+          onChange={(v) => actualizarCampo('balanceArticular', v)}
+          placeholder="Balance articular y disfunciones"
+          multiline
+          grabable
+        />
+        <CampoFicha
+          label="Datos de interés"
+          value={campos.datosInteres}
+          onChange={(v) => actualizarCampo('datosInteres', v)}
+          placeholder="Datos de interés"
+          multiline
+        />
+        <CampoFicha
+          label="Valoración funcional"
+          value={campos.valoracionFuncional}
+          onChange={(v) => actualizarCampo('valoracionFuncional', v)}
+          placeholder="Valoración funcional"
+          multiline
+          grabable
+        />
+        <CampoFicha
+          label="Pruebas específicas"
+          value={campos.pruebasEspecificas}
+          onChange={(v) => actualizarCampo('pruebasEspecificas', v)}
+          placeholder="Pruebas específicas"
+          multiline
+        />
+      </div>
+
+      <div style={s.card}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Problemas y tratamiento</span>
+        </div>
+        <CampoFicha
+          label="Identificación de los problemas fisioterapéuticos"
+          value={campos.problemasFisioterapeuticos}
+          onChange={(v) => actualizarCampo('problemasFisioterapeuticos', v)}
+          placeholder="Problemas fisioterapéuticos"
+          multiline
+          grabable
+        />
+        <CampoFicha
+          label="Programa de fisioterapia"
+          value={campos.programaFisioterapia}
+          onChange={(v) => actualizarCampo('programaFisioterapia', v)}
+          placeholder="Programa de fisioterapia"
+          multiline
+        />
+        <CampoFicha
+          label="Plan de tratamiento"
+          value={campos.planTratamiento}
+          onChange={(v) => actualizarCampo('planTratamiento', v)}
+          placeholder="Plan de tratamiento"
+          multiline
+          grabable
+        />
+        <CampoFicha
+          label="Recomendaciones a la familia"
+          value={campos.recomendacionesFamilia}
+          onChange={(v) => actualizarCampo('recomendacionesFamilia', v)}
+          placeholder="Recomendaciones a la familia"
+          multiline
+        />
+        <CampoFicha
+          label="Objetivos fisioterapéuticos"
+          value={campos.objetivosFisioterapeuticos}
+          onChange={(v) => actualizarCampo('objetivosFisioterapeuticos', v)}
+          placeholder="Objetivos fisioterapéuticos"
+          multiline
+        />
+        <CampoFicha
+          label="Evolución, exploración y tratamiento"
+          value={campos.evolucionExploracionTratamiento}
+          onChange={(v) => actualizarCampo('evolucionExploracionTratamiento', v)}
+          placeholder="Evolución, exploración y tratamiento"
+          multiline
+          grabable
+        />
+        {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 4 }}>{errorPDF}</p>}
       </div>
 
       <style>{`
