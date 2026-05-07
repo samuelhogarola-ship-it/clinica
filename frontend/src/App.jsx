@@ -1,6 +1,40 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API = '/api';
+const TOKEN_STORAGE_KEY = 'fisioapp-token';
+
+function getStoredToken() {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+}
+
+function clearStoredToken() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+async function apiFetch(path, options = {}) {
+  const token = getStoredToken();
+  const headers = new Headers(options.headers || {});
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    clearStoredToken();
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  }
+
+  return response;
+}
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const fechaHoy = () => new Date().toISOString().split('T')[0];
@@ -108,7 +142,91 @@ const s = {
     fontSize: 12, color: 'var(--teal-mid)', opacity: 0,
     transition: 'opacity 0.4s',
   },
+  authShell: {
+    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '24px',
+  },
+  authCard: {
+    width: '100%', maxWidth: 420, background: 'var(--surface)',
+    border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+    padding: '28px 28px 24px',
+    boxShadow: '0 18px 50px rgba(44, 44, 42, 0.06)',
+  },
+  authLogo: {
+    width: 14, height: 14, borderRadius: '50%', background: 'var(--teal-base)',
+    marginBottom: 18,
+  },
+  authTitle: { fontSize: 24, fontWeight: 500, letterSpacing: '-0.03em', marginBottom: 8 },
+  authText: { color: 'var(--gray-600)', fontSize: 14, marginBottom: 20 },
+  authError: { fontSize: 13, color: '#A14B2E', marginTop: 12 },
 };
+
+function VistaLogin({ onLoginCorrecto }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(false);
+
+  const acceder = async () => {
+    if (!password) return;
+    setError('');
+    setCargando(true);
+
+    try {
+      const res = await fetch(`${API}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.token) {
+        localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+        onLoginCorrecto(data.token);
+        return;
+      }
+
+      setError('Contraseña incorrecta.');
+    } catch {
+      setError('No se pudo verificar el acceso.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  return (
+    <div style={s.authShell}>
+      <div style={s.authCard}>
+        <div style={s.authLogo} />
+        <h1 style={s.authTitle}>Acceso protegido</h1>
+        <p style={s.authText}>
+          Introduce la contraseña de acceso para abrir la aplicación clínica.
+        </p>
+
+        <label style={s.label}>Contraseña</label>
+        <input
+          style={s.input}
+          type="password"
+          value={password}
+          placeholder="Contraseña"
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && acceder()}
+        />
+
+        {error && <p style={s.authError}>{error}</p>}
+
+        <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
+          <button style={s.btnPrimary} onClick={acceder} disabled={cargando || !password}>
+            {cargando ? 'Verificando...' : 'Acceder'}
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        input:focus, textarea:focus { border-color: var(--teal-light) !important; box-shadow: 0 0 0 3px var(--teal-pale); }
+      `}</style>
+    </div>
+  );
+}
 
 // ── Componente: Campo con grabación ───────────────────────────────────────────
 function CampoGrabable({ label, value, onChange, placeholder }) {
@@ -130,7 +248,7 @@ function CampoGrabable({ label, value, onChange, placeholder }) {
         const fd = new FormData();
         fd.append('audio', blob, 'audio.webm');
         try {
-          const res = await fetch(`${API}/transcribir`, { method: 'POST', body: fd });
+          const res = await apiFetch('/transcribir', { method: 'POST', body: fd });
           const data = await res.json();
           if (data.texto) {
             // Acumular: añadir texto con espacio si ya hay contenido
@@ -213,7 +331,7 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
     const partes = fecha.split('/');
     const isoFecha = partes.length === 3 ? `${partes[2]}-${partes[1]}-${partes[0]}` : fecha;
     try {
-      const res = await fetch(`${API}/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
+      const res = await apiFetch(`/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
       const data = await res.json();
       setResultados(data);
       setBuscado(true);
@@ -308,7 +426,7 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
     const isoFecha = `${partes[2]}-${partes[1]}-${partes[0]}`;
     setCargando(true);
     try {
-      const res = await fetch(`${API}/pacientes`, {
+      const res = await apiFetch('/pacientes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: id.trim().toUpperCase(), fechaNacimiento: isoFecha }),
@@ -377,7 +495,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   // Cargar sesiones del paciente
   useEffect(() => {
-    fetch(`${API}/sesiones/${pacienteId}`)
+    apiFetch(`/sesiones/${pacienteId}`)
       .then(r => r.json())
       .then(d => {
         setSesiones(d.sesiones || []);
@@ -393,7 +511,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   }, [pacienteId]);
 
   const cargarSesion = (fecha) => {
-    fetch(`${API}/sesiones/${pacienteId}/${fecha}`)
+    apiFetch(`/sesiones/${pacienteId}/${fecha}`)
       .then(r => r.json())
       .then(d => {
         setCampos({ sintomas: d.sintomas || '', diagnostico: d.diagnostico || '', tratamiento: d.tratamiento || '' });
@@ -408,7 +526,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   // Autoguardado con debounce
   const guardarAhora = useCallback(async (data) => {
-    await fetch(`${API}/sesiones/${pacienteId}`, {
+    await apiFetch(`/sesiones/${pacienteId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -416,7 +534,7 @@ function VistaFicha({ pacienteId, onVolver }) {
     setGuardado(true);
     setTimeout(() => setGuardado(false), 2000);
     // Refrescar lista de sesiones
-    const res = await fetch(`${API}/sesiones/${pacienteId}`);
+    const res = await apiFetch(`/sesiones/${pacienteId}`);
     const d = await res.json();
     setSesiones(d.sesiones || []);
     setSesionActiva(fechaHoy());
@@ -435,7 +553,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const generarPDF = async () => {
     setGenerandoPDF(true);
     try {
-      const res = await fetch(`${API}/pdf/${pacienteId}`, {
+      const res = await apiFetch(`/pdf/${pacienteId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...campos, fecha: sesionActiva !== 'nueva' ? sesionActiva : fechaHoy() }),
@@ -539,10 +657,21 @@ function VistaFicha({ pacienteId, onVolver }) {
 
 // ── App principal ─────────────────────────────────────────────────────────────
 export default function App() {
+  const [autenticado, setAutenticado] = useState(() => Boolean(getStoredToken()));
   const [vista, setVista] = useState('buscar'); // 'buscar' | 'crear' | 'ficha'
   const [pacienteActivo, setPacienteActivo] = useState(null);
 
   const abrirFicha = (id) => { setPacienteActivo(id); setVista('ficha'); };
+  const cerrarSesion = () => {
+    clearStoredToken();
+    setAutenticado(false);
+    setPacienteActivo(null);
+    setVista('buscar');
+  };
+
+  if (!autenticado) {
+    return <VistaLogin onLoginCorrecto={() => setAutenticado(true)} />;
+  }
 
   return (
     <div style={s.page}>
@@ -551,9 +680,14 @@ export default function App() {
           <div style={s.logoDot} />
           <span style={s.logoText}>FisioApp</span>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--gray-600)', fontFamily: 'var(--font-mono)' }}>
-          local · red privada
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, color: 'var(--gray-600)', fontFamily: 'var(--font-mono)' }}>
+            acceso protegido
+          </span>
+          <button style={s.btnSecondary} onClick={cerrarSesion}>
+            Cerrar sesión
+          </button>
+        </div>
       </header>
 
       <main style={s.main}>
