@@ -37,25 +37,35 @@ const PATIENT_SESSIONS_INDEX_PATH = path.join(META_DIR, 'patient-sessions-index.
 const COUNTERS_PATH = path.join(META_DIR, 'counters.json');
 const authTokens = new Map();
 
-[DATA_DIR, INDICE_DIR, SESIONES_DIR, PACIENTES_DIR, SESSION_RECORDS_DIR, META_DIR].forEach((dir) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
-
-if (!fs.existsSync(INDICE_PATH)) {
-  fs.writeFileSync(INDICE_PATH, '{}', 'utf8');
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
 }
 
-if (!fs.existsSync(PATIENT_CODE_INDEX_PATH)) {
-  fs.writeFileSync(PATIENT_CODE_INDEX_PATH, '{}', 'utf8');
+function ensureJsonFile(filePath, fallbackData) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(fallbackData, null, 2), 'utf8');
+  }
 }
 
-if (!fs.existsSync(PATIENT_SESSIONS_INDEX_PATH)) {
-  fs.writeFileSync(PATIENT_SESSIONS_INDEX_PATH, '{}', 'utf8');
+function ensureDataBootstrap() {
+  [
+    DATA_DIR,
+    INDICE_DIR,
+    SESIONES_DIR,
+    PACIENTES_DIR,
+    SESSION_RECORDS_DIR,
+    META_DIR,
+  ].forEach(ensureDir);
+
+  ensureJsonFile(INDICE_PATH, {});
+  ensureJsonFile(PATIENT_CODE_INDEX_PATH, {});
+  ensureJsonFile(PATIENT_SESSIONS_INDEX_PATH, {});
+  ensureJsonFile(COUNTERS_PATH, { patient: 0, session: 0 });
 }
 
-if (!fs.existsSync(COUNTERS_PATH)) {
-  fs.writeFileSync(COUNTERS_PATH, JSON.stringify({ patient: 0, session: 0 }, null, 2), 'utf8');
-}
+ensureDataBootstrap();
 
 const upload = multer({ storage: multer.memoryStorage() });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
