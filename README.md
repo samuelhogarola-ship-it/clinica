@@ -89,6 +89,15 @@ La raíz del proyecto sirve el frontend compilado como una sola app Node.
 
 En local, los datos se guardan en `backend/datos/`. En una preview remota sin disco persistente, los archivos pueden perderse al reiniciar el servicio.
 
+## Modo compartido en Hostinger
+
+- El índice de pacientes (`ID + fechaNacimiento`) vive en el servidor y se comparte entre todos los dispositivos.
+- La búsqueda y el listado de pacientes consultan siempre ese índice centralizado.
+- Al generar un PDF:
+  - se descarga en el dispositivo que lo solicita
+  - y además se guarda una copia en el servidor por ahora
+- Esto permite trabajar desde móvil, tablet o PC viendo la misma base de pacientes sin depender de carpetas locales del equipo del usuario.
+
 ## Autenticación básica
 
 - La app incluye una pantalla de acceso simple.
