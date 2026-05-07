@@ -376,6 +376,8 @@ app.post('/api/pdf/:id', (req, res) => {
   stream.on('finish', () => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${id}_${fechaStr}.pdf"`);
+    res.setHeader('X-Pdf-Saved-Path', pdfPath);
+    res.setHeader('X-Pdf-Saved-Dir', pdfDir);
     fs.createReadStream(pdfPath).pipe(res);
   });
 

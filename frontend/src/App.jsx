@@ -675,6 +675,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const [guardado, setGuardado] = useState(false);
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [errorPDF, setErrorPDF] = useState('');
+  const [infoPDF, setInfoPDF] = useState(null);
 
   // Cargar sesiones del paciente
   useEffect(() => {
@@ -736,6 +737,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const generarPDF = async () => {
     setGenerandoPDF(true);
     setErrorPDF('');
+    setInfoPDF(null);
     try {
       const res = await apiFetch(`/pdf/${pacienteId}`, {
         method: 'POST',
@@ -752,6 +754,9 @@ function VistaFicha({ pacienteId, onVolver }) {
         throw new Error('El PDF llegó vacío');
       }
 
+      const savedPath = res.headers.get('X-Pdf-Saved-Path') || '';
+      const savedDir = res.headers.get('X-Pdf-Saved-Dir') || '';
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -760,6 +765,10 @@ function VistaFicha({ pacienteId, onVolver }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+
+      if (savedPath || savedDir) {
+        setInfoPDF({ savedPath, savedDir });
+      }
     } catch (e) {
       console.error(e);
       setErrorPDF('No se pudo generar o descargar el PDF.');
@@ -1045,6 +1054,23 @@ function VistaFicha({ pacienteId, onVolver }) {
           grabable
         />
         {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 4 }}>{errorPDF}</p>}
+        {infoPDF && (
+          <div style={{ fontSize: 13, color: 'var(--gray-600)', marginTop: 8, lineHeight: 1.5 }}>
+            <p>PDF guardado en servidor: <span style={{ fontFamily: 'var(--font-mono)' }}>{infoPDF.savedPath}</span></p>
+            {infoPDF.savedDir && (
+              <p>
+                Carpeta:
+                {' '}
+                <a
+                  href={`file://${infoPDF.savedDir}`}
+                  style={{ color: 'var(--teal-mid)' }}
+                >
+                  abrir carpeta
+                </a>
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <style>{`
