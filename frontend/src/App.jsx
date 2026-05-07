@@ -761,7 +761,10 @@ function VistaFicha({ pacienteId, onVolver }) {
     const nuevoValor = typeof valor === 'function' ? valor(campos[campo]) : valor;
     const nuevoCampos = { ...campos, [campo]: nuevoValor };
     setCampos(nuevoCampos);
-    debouncedGuardar(nuevoCampos);
+
+    if (sesionEsEditablePorDefecto(sesionActiva)) {
+      debouncedGuardar(nuevoCampos);
+    }
   };
 
   const guardarSesionActual = async () => {
@@ -833,6 +836,9 @@ function VistaFicha({ pacienteId, onVolver }) {
           )}
           {editable && sesionActiva === 'nueva' && (
             <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>guardado automático</span>
+          )}
+          {editable && sesionActiva !== 'nueva' && (
+            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>cambios locales hasta guardar</span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
