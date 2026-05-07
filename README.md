@@ -1,22 +1,37 @@
 # FisioApp
 
-Aplicación clínica para fisioterapia con frontend en React/Vite y backend en Node/Express. Este repositorio conserva solo la versión definitiva de la app.
+Aplicación clínica para fisioterapia con frontend en React/Vite y backend en Node/Express.
 
 ## Estructura
 
 ```text
 clinica/
-├── frontend/   # interfaz React + Vite
-├── backend/    # API Express + PDFs + transcripción
-└── render.yaml # despliegue remoto de una sola app Node
+├── package.json
+├── server.js
+├── public/     # frontend compilado listo para servir
+├── frontend/   # fuente React + Vite
+├── backend/    # compatibilidad local y datos existentes
+└── render.yaml
 ```
+
+## Hostinger
+
+La app está reorganizada para seguir el mismo patrón que tus otros repos Node para Hostinger:
+
+- una sola app Node en la raíz
+- `package.json` en raíz
+- `server.js` en raíz
+- frontend servido desde `public/`
+- comando de arranque: `npm start`
+
+Si Hostinger apunta a la raíz del repo, la estructura correcta ya está preparada.
 
 ## Desarrollo local
 
 ### 1. Instalar dependencias
 
 ```bash
-npm install --prefix backend
+npm install
 npm install --prefix frontend
 ```
 
@@ -40,7 +55,7 @@ DATA_DIR=/ruta/a/datos
 Terminal 1:
 
 ```bash
-npm run dev --prefix backend
+npm run dev:backend
 ```
 
 Terminal 2:
@@ -53,7 +68,7 @@ Abre [http://localhost:5173](http://localhost:5173).
 
 ## Preview remota
 
-El backend está preparado para servir el frontend compilado, así que en remoto se despliega como una sola app Node.
+La raíz del proyecto sirve el frontend compilado como una sola app Node.
 
 ### Render
 
@@ -65,9 +80,9 @@ El backend está preparado para servir el frontend compilado, así que en remoto
 
 ### Qué hace el despliegue
 
-- Instala `backend/` y `frontend/`
+- Instala dependencias en raíz y frontend
 - Compila el frontend
-- Arranca Express
+- Arranca `server.js` en raíz
 - Sirve la SPA y la API bajo el mismo dominio
 
 ## Nota sobre datos
@@ -105,9 +120,9 @@ DATA_DIR=./datos
 ### Arranque
 
 ```bash
-npm install --prefix backend
+npm install
 npm install --prefix frontend
-npm run dev --prefix backend
+npm run dev:backend
 npm run dev --prefix frontend
 ```
 
@@ -115,12 +130,14 @@ O para servir la versión compilada desde Node:
 
 ```bash
 npm run build
-APP_PASSWORD=2026 npm start --prefix backend
+APP_PASSWORD=2026 npm start
 ```
 
 ### Archivos modificados
 
+- `server.js`
 - `backend/server.js`
-- `backend/.env.example`
+- `package.json`
+- `frontend/vite.config.js`
 - `frontend/src/App.jsx`
 - `README.md`
