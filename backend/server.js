@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +17,7 @@ const FRONTEND_DIST_DIR = path.join(__dirname, '..', 'frontend', 'dist');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'datos');
 const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_DIR, 'index.html');
 const HAS_FRONTEND_BUILD = fs.existsSync(FRONTEND_INDEX_PATH);
+const authTokens = new Set();
 
 // Dirs
 const SESIONES_DIR = path.join(DATA_DIR, 'sesiones');
@@ -49,11 +51,38 @@ function sesionPath(id, fecha) {
   return path.join(dir, `${fecha}.json`);
 }
 
+function requireAuth(req, res, next) {
+  const authHeader = req.get('Authorization') || '';
+  const [scheme, token] = authHeader.split(' ');
+
+  if (scheme !== 'Bearer' || !token || !authTokens.has(token)) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  next();
+}
+
 // ── Acceso básico ────────────────────────────────────────────────────────────
 app.post('/api/login', (req, res) => {
   const { password } = req.body || {};
-  const success = Boolean(APP_PASSWORD) && password === APP_PASSWORD;
-  res.json({ success });
+  if (!APP_PASSWORD || password !== APP_PASSWORD) {
+    res.json({ success: false });
+    return;
+  }
+
+  const token = crypto.randomUUID();
+  authTokens.add(token);
+  res.json({ success: true, token });
+});
+
+app.use('/api', (req, res, next) => {
+  if (req.path === '/login') {
+    next();
+    return;
+  }
+
+  requireAuth(req, res, next);
 });
 
 // ── Pacientes: crear ──────────────────────────────────────────────────────────

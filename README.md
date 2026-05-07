@@ -79,7 +79,18 @@ En local, los datos se guardan en `backend/datos/`. En una preview remota sin di
 - La app incluye una pantalla de acceso simple.
 - La validación de la contraseña se hace en el backend mediante `POST /api/login`.
 - La contraseña no se guarda en el frontend.
-- Tras un login correcto, el frontend conserva una sesión simple en `localStorage`.
+- Tras un login correcto, el backend genera un token simple en memoria con `crypto.randomUUID()`.
+- El frontend guarda ese token en `localStorage` y lo envía en `Authorization: Bearer <token>`.
+- Todos los endpoints clínicos quedan protegidos salvo `/api/login`.
+- Esta protección está pensada para una app privada/local y no pretende ser seguridad enterprise.
+
+### Cómo funciona
+
+1. El usuario introduce la contraseña definida en `APP_PASSWORD`.
+2. `POST /api/login` valida la contraseña y devuelve un token simple.
+3. El backend guarda ese token en memoria.
+4. Las peticiones siguientes solo funcionan si incluyen el token válido en `Authorization`.
+5. Si el servidor se reinicia, los tokens en memoria dejan de ser válidos y hay que volver a iniciar sesión.
 
 ### Configuración
 

@@ -1,7 +1,40 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API = '/api';
-const AUTH_STORAGE_KEY = 'fisioapp-authenticated';
+const TOKEN_STORAGE_KEY = 'fisioapp-token';
+
+function getStoredToken() {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+}
+
+function clearStoredToken() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+async function apiFetch(path, options = {}) {
+  const token = getStoredToken();
+  const headers = new Headers(options.headers || {});
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    clearStoredToken();
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  }
+
+  return response;
+}
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const fechaHoy = () => new Date().toISOString().split('T')[0];
@@ -146,9 +179,9 @@ function VistaLogin({ onLoginCorrecto }) {
       });
       const data = await res.json();
 
-      if (data.success) {
-        localStorage.setItem(AUTH_STORAGE_KEY, 'true');
-        onLoginCorrecto();
+      if (data.success && data.token) {
+        localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+        onLoginCorrecto(data.token);
         return;
       }
 
@@ -215,7 +248,7 @@ function CampoGrabable({ label, value, onChange, placeholder }) {
         const fd = new FormData();
         fd.append('audio', blob, 'audio.webm');
         try {
-          const res = await fetch(`${API}/transcribir`, { method: 'POST', body: fd });
+          const res = await apiFetch('/transcribir', { method: 'POST', body: fd });
           const data = await res.json();
           if (data.texto) {
             // Acumular: añadir texto con espacio si ya hay contenido
@@ -298,7 +331,7 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
     const partes = fecha.split('/');
     const isoFecha = partes.length === 3 ? `${partes[2]}-${partes[1]}-${partes[0]}` : fecha;
     try {
-      const res = await fetch(`${API}/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
+      const res = await apiFetch(`/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
       const data = await res.json();
       setResultados(data);
       setBuscado(true);
@@ -393,7 +426,7 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
     const isoFecha = `${partes[2]}-${partes[1]}-${partes[0]}`;
     setCargando(true);
     try {
-      const res = await fetch(`${API}/pacientes`, {
+      const res = await apiFetch('/pacientes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: id.trim().toUpperCase(), fechaNacimiento: isoFecha }),
@@ -462,7 +495,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   // Cargar sesiones del paciente
   useEffect(() => {
-    fetch(`${API}/sesiones/${pacienteId}`)
+    apiFetch(`/sesiones/${pacienteId}`)
       .then(r => r.json())
       .then(d => {
         setSesiones(d.sesiones || []);
@@ -478,7 +511,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   }, [pacienteId]);
 
   const cargarSesion = (fecha) => {
-    fetch(`${API}/sesiones/${pacienteId}/${fecha}`)
+    apiFetch(`/sesiones/${pacienteId}/${fecha}`)
       .then(r => r.json())
       .then(d => {
         setCampos({ sintomas: d.sintomas || '', diagnostico: d.diagnostico || '', tratamiento: d.tratamiento || '' });
@@ -493,7 +526,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   // Autoguardado con debounce
   const guardarAhora = useCallback(async (data) => {
-    await fetch(`${API}/sesiones/${pacienteId}`, {
+    await apiFetch(`/sesiones/${pacienteId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -501,7 +534,7 @@ function VistaFicha({ pacienteId, onVolver }) {
     setGuardado(true);
     setTimeout(() => setGuardado(false), 2000);
     // Refrescar lista de sesiones
-    const res = await fetch(`${API}/sesiones/${pacienteId}`);
+    const res = await apiFetch(`/sesiones/${pacienteId}`);
     const d = await res.json();
     setSesiones(d.sesiones || []);
     setSesionActiva(fechaHoy());
@@ -520,7 +553,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const generarPDF = async () => {
     setGenerandoPDF(true);
     try {
-      const res = await fetch(`${API}/pdf/${pacienteId}`, {
+      const res = await apiFetch(`/pdf/${pacienteId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...campos, fecha: sesionActiva !== 'nueva' ? sesionActiva : fechaHoy() }),
@@ -624,16 +657,13 @@ function VistaFicha({ pacienteId, onVolver }) {
 
 // ── App principal ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [autenticado, setAutenticado] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
-  });
+  const [autenticado, setAutenticado] = useState(() => Boolean(getStoredToken()));
   const [vista, setVista] = useState('buscar'); // 'buscar' | 'crear' | 'ficha'
   const [pacienteActivo, setPacienteActivo] = useState(null);
 
   const abrirFicha = (id) => { setPacienteActivo(id); setVista('ficha'); };
   const cerrarSesion = () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    clearStoredToken();
     setAutenticado(false);
     setPacienteActivo(null);
     setVista('buscar');
