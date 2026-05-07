@@ -23,17 +23,38 @@ const DATA_DIR = process.env.DATA_DIR || (
     ? path.join(__dirname, 'backend', 'datos')
     : path.join(__dirname, 'datos')
 );
+const USERS_PATH = fs.existsSync(path.join(__dirname, 'backend', 'usuarios.json'))
+  ? path.join(__dirname, 'backend', 'usuarios.json')
+  : path.join(__dirname, 'usuarios.json');
 const INDICE_DIR = path.join(DATA_DIR, 'indice');
 const SESIONES_DIR = path.join(DATA_DIR, 'sesiones');
 const INDICE_PATH = path.join(INDICE_DIR, 'indice.json');
-const authTokens = new Set();
+const PACIENTES_DIR = path.join(DATA_DIR, 'pacientes');
+const SESSION_RECORDS_DIR = path.join(DATA_DIR, 'sesiones-registros');
+const META_DIR = path.join(DATA_DIR, 'meta');
+const PATIENT_CODE_INDEX_PATH = path.join(META_DIR, 'patient-code-index.json');
+const PATIENT_SESSIONS_INDEX_PATH = path.join(META_DIR, 'patient-sessions-index.json');
+const COUNTERS_PATH = path.join(META_DIR, 'counters.json');
+const authTokens = new Map();
 
-[DATA_DIR, INDICE_DIR, SESIONES_DIR].forEach((dir) => {
+[DATA_DIR, INDICE_DIR, SESIONES_DIR, PACIENTES_DIR, SESSION_RECORDS_DIR, META_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
 if (!fs.existsSync(INDICE_PATH)) {
   fs.writeFileSync(INDICE_PATH, '{}', 'utf8');
+}
+
+if (!fs.existsSync(PATIENT_CODE_INDEX_PATH)) {
+  fs.writeFileSync(PATIENT_CODE_INDEX_PATH, '{}', 'utf8');
+}
+
+if (!fs.existsSync(PATIENT_SESSIONS_INDEX_PATH)) {
+  fs.writeFileSync(PATIENT_SESSIONS_INDEX_PATH, '{}', 'utf8');
+}
+
+if (!fs.existsSync(COUNTERS_PATH)) {
+  fs.writeFileSync(COUNTERS_PATH, JSON.stringify({ patient: 0, session: 0 }, null, 2), 'utf8');
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -43,20 +64,102 @@ app.use(cors());
 app.use(express.json());
 
 function leerIndice() {
-  if (!fs.existsSync(INDICE_PATH)) {
-    return {};
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(INDICE_PATH, 'utf8'));
-  } catch (error) {
-    console.error('No se pudo leer indice.json:', error);
-    return {};
-  }
+  return buildLegacyIndexFromPrimaryData();
 }
 
 function guardarIndice(indice) {
   fs.writeFileSync(INDICE_PATH, JSON.stringify(indice, null, 2), 'utf8');
+}
+
+function readJsonFile(filePath, fallback) {
+  if (!fs.existsSync(filePath)) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    console.error(`No se pudo leer ${path.basename(filePath)}:`, error);
+    return fallback;
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function getLegacyIndiceRaw() {
+  return readJsonFile(INDICE_PATH, {});
+}
+
+function loadPatientCodeIndex() {
+  return readJsonFile(PATIENT_CODE_INDEX_PATH, {});
+}
+
+function savePatientCodeIndex(index) {
+  writeJsonFile(PATIENT_CODE_INDEX_PATH, index);
+}
+
+function loadPatientSessionsIndex() {
+  return readJsonFile(PATIENT_SESSIONS_INDEX_PATH, {});
+}
+
+function savePatientSessionsIndex(index) {
+  writeJsonFile(PATIENT_SESSIONS_INDEX_PATH, index);
+}
+
+function loadCounters() {
+  return readJsonFile(COUNTERS_PATH, { patient: 0, session: 0 });
+}
+
+function saveCounters(counters) {
+  writeJsonFile(COUNTERS_PATH, counters);
+}
+
+function nextStableId(kind) {
+  const counters = loadCounters();
+  const key = kind === 'pac' ? 'patient' : 'session';
+  counters[key] = Number(counters[key] || 0) + 1;
+  saveCounters(counters);
+  return `${kind}_${String(counters[key]).padStart(6, '0')}`;
+}
+
+function patientFilePath(patientId) {
+  return path.join(PACIENTES_DIR, `${patientId}.json`);
+}
+
+function sessionRecordPath(sessionId) {
+  return path.join(SESSION_RECORDS_DIR, `${sessionId}.json`);
+}
+
+function legacySessionDir(codigoPaciente) {
+  return path.join(SESIONES_DIR, codigoPaciente);
+}
+
+function legacySessionPath(codigoPaciente, fecha) {
+  const dir = legacySessionDir(codigoPaciente);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${fecha}.json`);
+}
+
+function legacyPdfPath(codigoPaciente, fecha) {
+  const dir = legacySessionDir(codigoPaciente);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${fecha}.pdf`);
+}
+
+function leerUsuarios() {
+  if (!fs.existsSync(USERS_PATH)) {
+    return [];
+  }
+
+  try {
+    const users = JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
+    return Array.isArray(users) ? users : [];
+  } catch (error) {
+    console.error('No se pudo leer usuarios.json:', error);
+    return [];
+  }
 }
 
 function fechaHoy() {
@@ -64,9 +167,7 @@ function fechaHoy() {
 }
 
 function sesionPath(id, fecha) {
-  const dir = path.join(SESIONES_DIR, id);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, `${fecha}.json`);
+  return legacySessionPath(id, fecha);
 }
 
 function esFechaValida(year, month, day) {
@@ -103,6 +204,318 @@ function normalizeFechaNacimiento(value) {
   }
 
   return '';
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function getSafeUser(user = {}) {
+  return {
+    id: user.id || '',
+    username: user.username || '',
+    role: user.role || '',
+    displayName: user.displayName || user.username || '',
+  };
+}
+
+function getUserByUsername(username) {
+  const normalizedUsername = normalizeText(username);
+  if (!normalizedUsername) return null;
+
+  return leerUsuarios().find((user) => normalizeText(user.username) === normalizedUsername) || null;
+}
+
+function readJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getPacienteNombre(id, sesiones = []) {
+  const orderedSessions = [...sesiones].sort().reverse();
+
+  for (const fecha of orderedSessions) {
+    const sessionData = readJsonIfExists(legacySessionPath(id, fecha));
+    if (!sessionData) continue;
+
+    const nombre = String(sessionData.nombre || '').trim();
+    const apellidos = String(sessionData.apellidos || '').trim();
+    const displayName = [nombre, apellidos].filter(Boolean).join(' ').trim();
+
+    if (nombre || apellidos) {
+      return { nombre, apellidos, displayName };
+    }
+  }
+
+  return { nombre: '', apellidos: '', displayName: '' };
+}
+
+function getAnonDisplayName(nombre = '', apellidos = '') {
+  const cleanNombre = String(nombre || '').trim();
+  const cleanApellidos = String(apellidos || '').trim();
+  const apellidoInicial = cleanApellidos ? `${cleanApellidos.charAt(0).toUpperCase()}.` : '';
+  return [cleanNombre, apellidoInicial].filter(Boolean).join(' ').trim();
+}
+
+function buildPacienteSummary(id, value = {}) {
+  const sesiones = Array.isArray(value.sesiones) ? value.sesiones : [];
+  const nombres = getPacienteNombre(id, sesiones);
+
+  return {
+    id,
+    fechaNacimiento: normalizeFechaNacimiento(value.fechaNacimiento),
+    sesiones,
+    creadoEn: value.creadoEn || '',
+    createdBy: value.createdBy || '',
+    updatedBy: value.updatedBy || '',
+    nombre: nombres.nombre,
+    apellidos: nombres.apellidos,
+    displayName: getAnonDisplayName(nombres.nombre, nombres.apellidos),
+  };
+}
+
+function getPatientByInternalId(patientId) {
+  return readJsonFile(patientFilePath(patientId), null);
+}
+
+function getPatientByCode(codigoPaciente) {
+  const codeIndex = loadPatientCodeIndex();
+  const normalizedCode = String(codigoPaciente || '').trim().toUpperCase();
+  const patientId = codeIndex[normalizedCode];
+  if (!patientId) return null;
+
+  const patient = getPatientByInternalId(patientId);
+  if (!patient) return null;
+
+  return patient;
+}
+
+function listSessionDatesForPatient(patientId) {
+  const patientSessionsIndex = loadPatientSessionsIndex();
+  return Object.keys(patientSessionsIndex[patientId] || {}).sort().reverse();
+}
+
+function getSessionIdForPatientDate(patientId, fecha) {
+  const patientSessionsIndex = loadPatientSessionsIndex();
+  return patientSessionsIndex[patientId]?.[fecha] || '';
+}
+
+function buildLegacyIndexFromPrimaryData() {
+  const codeIndex = loadPatientCodeIndex();
+  const legacyIndex = {};
+
+  for (const [codigoPaciente, patientId] of Object.entries(codeIndex)) {
+    const patient = getPatientByInternalId(patientId);
+    if (!patient) continue;
+
+    legacyIndex[codigoPaciente] = {
+      fechaNacimiento: normalizeFechaNacimiento(patient.fechaNacimiento),
+      creadoEn: patient.createdAt || '',
+      updatedAt: patient.updatedAt || '',
+      createdBy: patient.createdBy || '',
+      updatedBy: patient.updatedBy || '',
+      sesiones: listSessionDatesForPatient(patientId),
+    };
+  }
+
+  return legacyIndex;
+}
+
+function writeLegacyIndexSnapshot() {
+  guardarIndice(buildLegacyIndexFromPrimaryData());
+}
+
+function createPatientRecord({ codigoPaciente, fechaNacimiento, currentUser }) {
+  const patientId = nextStableId('pac');
+  const nowIso = new Date().toISOString();
+  const normalizedFecha = normalizeFechaNacimiento(fechaNacimiento);
+  const patientRecord = {
+    id: patientId,
+    codigo: codigoPaciente,
+    fechaNacimiento: normalizedFecha,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    createdBy: currentUser?.id || '',
+    updatedBy: currentUser?.id || '',
+  };
+
+  writeJsonFile(patientFilePath(patientId), patientRecord);
+
+  const codeIndex = loadPatientCodeIndex();
+  codeIndex[codigoPaciente] = patientId;
+  savePatientCodeIndex(codeIndex);
+
+  const patientSessionsIndex = loadPatientSessionsIndex();
+  patientSessionsIndex[patientId] = patientSessionsIndex[patientId] || {};
+  savePatientSessionsIndex(patientSessionsIndex);
+  writeLegacyIndexSnapshot();
+
+  return patientRecord;
+}
+
+function updatePatientRecord(patientRecord) {
+  writeJsonFile(patientFilePath(patientRecord.id), patientRecord);
+  writeLegacyIndexSnapshot();
+}
+
+function persistSessionRecord({ patientRecord, fecha, data, currentUser }) {
+  const patientSessionsIndex = loadPatientSessionsIndex();
+  patientSessionsIndex[patientRecord.id] = patientSessionsIndex[patientRecord.id] || {};
+
+  const existingSessionId = patientSessionsIndex[patientRecord.id][fecha];
+  const existingSession = existingSessionId ? readJsonFile(sessionRecordPath(existingSessionId), null) : null;
+  const sessionId = existingSessionId || nextStableId('ses');
+  const nowIso = new Date().toISOString();
+  const ficha = hydrateFichaCampos({ ...existingSession, ...data });
+
+  const sessionRecord = {
+    ...ficha,
+    id: sessionId,
+    paciente_id: patientRecord.id,
+    paciente_codigo: patientRecord.codigo,
+    fecha,
+    createdAt: existingSession?.createdAt || nowIso,
+    updatedAt: nowIso,
+    createdBy: existingSession?.createdBy || currentUser?.id || '',
+    updatedBy: currentUser?.id || existingSession?.updatedBy || '',
+    pdfGeneratedBy: data.pdfGeneratedBy ?? existingSession?.pdfGeneratedBy ?? '',
+    pdfGeneratedAt: data.pdfGeneratedAt ?? existingSession?.pdfGeneratedAt ?? '',
+  };
+
+  writeJsonFile(sessionRecordPath(sessionId), sessionRecord);
+  patientSessionsIndex[patientRecord.id][fecha] = sessionId;
+  savePatientSessionsIndex(patientSessionsIndex);
+
+  const patientUpdated = {
+    ...patientRecord,
+    updatedAt: nowIso,
+    updatedBy: currentUser?.id || patientRecord.updatedBy || '',
+  };
+  updatePatientRecord(patientUpdated);
+
+  writeJsonFile(
+    legacySessionPath(patientRecord.codigo, fecha),
+    {
+      ...ficha,
+      id: patientRecord.codigo,
+      fecha,
+      sessionId,
+      pacienteId: patientRecord.id,
+      creadoEn: existingSession?.createdAt || nowIso,
+      actualizadoEn: nowIso,
+      createdBy: existingSession?.createdBy || currentUser?.id || '',
+      updatedBy: currentUser?.id || existingSession?.updatedBy || '',
+      pdfGeneratedBy: sessionRecord.pdfGeneratedBy || '',
+      pdfGeneratedAt: sessionRecord.pdfGeneratedAt || '',
+    }
+  );
+
+  return sessionRecord;
+}
+
+function getSessionRecordByPatientCodeAndDate(codigoPaciente, fecha) {
+  const patient = getPatientByCode(codigoPaciente);
+  if (!patient) return null;
+
+  const sessionId = getSessionIdForPatientDate(patient.id, fecha);
+  if (sessionId) {
+    return readJsonFile(sessionRecordPath(sessionId), null);
+  }
+
+  const legacySession = readJsonIfExists(legacySessionPath(codigoPaciente, fecha));
+  if (!legacySession) return null;
+
+  return {
+    ...hydrateFichaCampos(legacySession),
+    id: legacySession.sessionId || '',
+    paciente_id: patient.id,
+    paciente_codigo: codigoPaciente,
+    fecha,
+    createdAt: legacySession.creadoEn || legacySession.actualizadoEn || '',
+    updatedAt: legacySession.actualizadoEn || legacySession.creadoEn || '',
+    createdBy: legacySession.createdBy || '',
+    updatedBy: legacySession.updatedBy || '',
+    pdfGeneratedBy: legacySession.pdfGeneratedBy || '',
+    pdfGeneratedAt: legacySession.pdfGeneratedAt || '',
+  };
+}
+
+function migrateLegacyDataIfNeeded() {
+  const legacyIndice = getLegacyIndiceRaw();
+  if (!legacyIndice || Object.keys(legacyIndice).length === 0) {
+    return;
+  }
+
+  const codeIndex = loadPatientCodeIndex();
+  const patientSessionsIndex = loadPatientSessionsIndex();
+
+  let changed = false;
+
+  for (const [codigoPaciente, legacyPatient] of Object.entries(legacyIndice)) {
+    let patientId = codeIndex[codigoPaciente];
+    if (!patientId) {
+      patientId = nextStableId('pac');
+      codeIndex[codigoPaciente] = patientId;
+      changed = true;
+    }
+
+    const patientPath = patientFilePath(patientId);
+    const existingPatient = readJsonFile(patientPath, null);
+    if (!existingPatient) {
+      writeJsonFile(patientPath, {
+        id: patientId,
+        codigo: codigoPaciente,
+        fechaNacimiento: normalizeFechaNacimiento(legacyPatient.fechaNacimiento),
+        createdAt: legacyPatient.creadoEn || new Date().toISOString(),
+        updatedAt: legacyPatient.updatedAt || legacyPatient.creadoEn || new Date().toISOString(),
+        createdBy: legacyPatient.createdBy || '',
+        updatedBy: legacyPatient.updatedBy || '',
+      });
+      changed = true;
+    }
+
+    patientSessionsIndex[patientId] = patientSessionsIndex[patientId] || {};
+    const legacySessionDates = Array.isArray(legacyPatient.sesiones) ? legacyPatient.sesiones : [];
+
+    for (const fecha of legacySessionDates) {
+      if (patientSessionsIndex[patientId][fecha]) continue;
+
+      const sessionId = nextStableId('ses');
+      const legacySession = readJsonIfExists(legacySessionPath(codigoPaciente, fecha)) || {};
+      const nowIso = new Date().toISOString();
+
+      writeJsonFile(sessionRecordPath(sessionId), {
+        ...hydrateFichaCampos(legacySession),
+        id: sessionId,
+        paciente_id: patientId,
+        paciente_codigo: codigoPaciente,
+        fecha,
+        createdAt: legacySession.creadoEn || legacySession.actualizadoEn || legacyPatient.creadoEn || nowIso,
+        updatedAt: legacySession.actualizadoEn || legacySession.creadoEn || legacyPatient.updatedAt || nowIso,
+        createdBy: legacySession.createdBy || legacyPatient.createdBy || '',
+        updatedBy: legacySession.updatedBy || legacyPatient.updatedBy || '',
+        pdfGeneratedBy: legacySession.pdfGeneratedBy || '',
+        pdfGeneratedAt: legacySession.pdfGeneratedAt || '',
+      });
+      patientSessionsIndex[patientId][fecha] = sessionId;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    savePatientCodeIndex(codeIndex);
+    savePatientSessionsIndex(patientSessionsIndex);
+    writeLegacyIndexSnapshot();
+  }
 }
 
 function hydrateFichaCampos(data = {}) {
@@ -156,19 +569,25 @@ function requireAuth(req, res, next) {
     return;
   }
 
+  req.currentUser = authTokens.get(token);
   next();
 }
 
+migrateLegacyDataIfNeeded();
+
 app.post('/api/login', (req, res) => {
-  const { password } = req.body || {};
-  if (!APP_PASSWORD || password !== APP_PASSWORD) {
+  const { username, password } = req.body || {};
+  const user = getUserByUsername(username);
+
+  if (!APP_PASSWORD || password !== APP_PASSWORD || !user) {
     res.json({ success: false });
     return;
   }
 
   const token = crypto.randomUUID();
-  authTokens.add(token);
-  res.json({ success: true, token });
+  const currentUser = getSafeUser(user);
+  authTokens.set(token, currentUser);
+  res.json({ success: true, token, currentUser });
 });
 
 app.use('/api', (req, res, next) => {
@@ -183,22 +602,22 @@ app.use('/api', (req, res, next) => {
 app.post('/api/pacientes', (req, res) => {
   const { id, fechaNacimiento } = req.body;
   if (!id || !fechaNacimiento) return res.status(400).json({ error: 'Faltan campos' });
-  const indice = leerIndice();
-  if (indice[id]) return res.status(409).json({ error: 'ID ya existe' });
-  indice[id] = { fechaNacimiento, creadoEn: new Date().toISOString(), sesiones: [] };
-  guardarIndice(indice);
-  res.json({ ok: true, id });
+  const codigoPaciente = String(id).trim().toUpperCase();
+  if (getPatientByCode(codigoPaciente)) return res.status(409).json({ error: 'ID ya existe' });
+
+  const patientRecord = createPatientRecord({
+    codigoPaciente,
+    fechaNacimiento,
+    currentUser: req.currentUser,
+  });
+
+  res.json({ ok: true, id: codigoPaciente, pacienteId: patientRecord.id });
 });
 
 app.get('/api/pacientes', (req, res) => {
   const indice = leerIndice();
   const pacientes = Object.entries(indice)
-    .map(([id, value]) => ({
-      id,
-      fechaNacimiento: normalizeFechaNacimiento(value.fechaNacimiento),
-      sesiones: Array.isArray(value.sesiones) ? value.sesiones : [],
-      creadoEn: value.creadoEn || '',
-    }))
+    .map(([id, value]) => buildPacienteSummary(id, value))
     .sort((a, b) => {
       if (a.creadoEn && b.creadoEn) {
         return b.creadoEn.localeCompare(a.creadoEn);
@@ -212,11 +631,20 @@ app.get('/api/pacientes', (req, res) => {
 app.get('/api/pacientes/buscar', (req, res) => {
   const indice = leerIndice();
   const totalPacientes = Object.keys(indice).length;
-  const fechaRecibida = typeof req.query.fechaNacimiento === 'string' ? req.query.fechaNacimiento : '';
-  const fechaNormalizada = normalizeFechaNacimiento(fechaRecibida);
+  const queryRaw = typeof req.query.q === 'string'
+    ? req.query.q
+    : typeof req.query.fechaNacimiento === 'string'
+      ? req.query.fechaNacimiento
+      : typeof req.query.id === 'string'
+        ? req.query.id
+        : typeof req.query.nombre === 'string'
+          ? req.query.nombre
+          : '';
+  const fechaNormalizada = normalizeFechaNacimiento(queryRaw);
+  const queryNormalized = normalizeText(queryRaw);
 
   if (totalPacientes === 0) {
-    console.log('[buscar pacientes] fecha recibida:', fechaRecibida);
+    console.log('[buscar pacientes] consulta recibida:', queryRaw);
     console.log('[buscar pacientes] fecha normalizada:', fechaNormalizada);
     console.log('[buscar pacientes] pacientes en indice:', totalPacientes);
     console.log('[buscar pacientes] resultados encontrados:', 0);
@@ -224,8 +652,8 @@ app.get('/api/pacientes/buscar', (req, res) => {
     return;
   }
 
-  if (!fechaNormalizada) {
-    console.log('[buscar pacientes] fecha recibida:', fechaRecibida);
+  if (!queryNormalized && !fechaNormalizada) {
+    console.log('[buscar pacientes] consulta recibida:', queryRaw);
     console.log('[buscar pacientes] fecha normalizada:', fechaNormalizada);
     console.log('[buscar pacientes] pacientes en indice:', totalPacientes);
     console.log('[buscar pacientes] resultados encontrados:', 0);
@@ -234,10 +662,20 @@ app.get('/api/pacientes/buscar', (req, res) => {
   }
 
   const resultados = Object.entries(indice)
-    .filter(([, value]) => normalizeFechaNacimiento(value.fechaNacimiento) === fechaNormalizada)
-    .map(([id, value]) => ({ id, sesiones: value.sesiones }));
+    .map(([id, value]) => buildPacienteSummary(id, value))
+    .filter((paciente) => {
+      const matchesFecha = Boolean(fechaNormalizada) && paciente.fechaNacimiento === fechaNormalizada;
+      const matchesId = Boolean(queryNormalized) && normalizeText(paciente.id).includes(queryNormalized);
+      const matchesNombre = Boolean(queryNormalized) && (
+        normalizeText(paciente.nombre).includes(queryNormalized) ||
+        normalizeText(paciente.apellidos).includes(queryNormalized) ||
+        normalizeText(paciente.displayName).includes(queryNormalized)
+      );
 
-  console.log('[buscar pacientes] fecha recibida:', fechaRecibida);
+      return matchesFecha || matchesId || matchesNombre;
+    });
+
+  console.log('[buscar pacientes] consulta recibida:', queryRaw);
   console.log('[buscar pacientes] fecha normalizada:', fechaNormalizada);
   console.log('[buscar pacientes] pacientes en indice:', totalPacientes);
   console.log('[buscar pacientes] resultados encontrados:', resultados.length);
@@ -246,51 +684,87 @@ app.get('/api/pacientes/buscar', (req, res) => {
 });
 
 app.post('/api/sesiones/:id', (req, res) => {
-  const { id } = req.params;
-  const indice = leerIndice();
-  if (!indice[id]) return res.status(404).json({ error: 'Paciente no encontrado' });
+  const id = String(req.params.id || '').trim().toUpperCase();
+  const patientRecord = getPatientByCode(id);
+  if (!patientRecord) return res.status(404).json({ error: 'Paciente no encontrado' });
 
   const fechaSolicitada = normalizeFechaNacimiento(req.body?.fecha);
   const fecha = fechaSolicitada || fechaHoy();
-  const filePath = sesionPath(id, fecha);
-  const datos = req.body;
-
-  fs.writeFileSync(
-    filePath,
-    JSON.stringify({ ...datos, id, fecha, actualizadoEn: new Date().toISOString() }, null, 2)
-  );
-
-  if (!indice[id].sesiones.includes(fecha)) {
-    indice[id].sesiones.push(fecha);
-    guardarIndice(indice);
-  }
+  persistSessionRecord({
+    patientRecord,
+    fecha,
+    data: req.body || {},
+    currentUser: req.currentUser,
+  });
 
   res.json({ ok: true, fecha });
 });
 
 app.get('/api/sesiones/:id/:fecha', (req, res) => {
-  const { id, fecha } = req.params;
-  const filePath = path.join(SESIONES_DIR, id, `${fecha}.json`);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Sesión no encontrada' });
-  res.json(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+  const id = String(req.params.id || '').trim().toUpperCase();
+  const { fecha } = req.params;
+  const sessionRecord = getSessionRecordByPatientCodeAndDate(id, fecha);
+  if (!sessionRecord) return res.status(404).json({ error: 'Sesión no encontrada' });
+
+  res.json({
+    ...hydrateFichaCampos(sessionRecord),
+    id,
+    sessionId: sessionRecord.id,
+    pacienteId: sessionRecord.paciente_id,
+    fecha,
+    creadoEn: sessionRecord.createdAt || '',
+    actualizadoEn: sessionRecord.updatedAt || '',
+    createdBy: sessionRecord.createdBy || '',
+    updatedBy: sessionRecord.updatedBy || '',
+    pdfGeneratedBy: sessionRecord.pdfGeneratedBy || '',
+    pdfGeneratedAt: sessionRecord.pdfGeneratedAt || '',
+  });
 });
 
 app.get('/api/sesiones/:id', (req, res) => {
-  const { id } = req.params;
-  const indice = leerIndice();
-  if (!indice[id]) return res.status(404).json({ error: 'Paciente no encontrado' });
-  res.json({ id, sesiones: indice[id].sesiones.sort().reverse() });
+  const id = String(req.params.id || '').trim().toUpperCase();
+  const patientRecord = getPatientByCode(id);
+  if (!patientRecord) return res.status(404).json({ error: 'Paciente no encontrado' });
+  res.json({ id, pacienteId: patientRecord.id, sesiones: listSessionDatesForPatient(patientRecord.id) });
+});
+
+app.get('/api/pdf/:id/:fecha', (req, res) => {
+  const id = String(req.params.id || '').trim().toUpperCase();
+  const { fecha } = req.params;
+  const pdfPath = legacyPdfPath(id, fecha);
+
+  if (!fs.existsSync(pdfPath)) {
+    res.status(404).json({ error: 'PDF no encontrado' });
+    return;
+  }
+
+  res.download(pdfPath, `${id}_${fecha}.pdf`);
 });
 
 app.post('/api/pdf/:id', (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id || '').trim().toUpperCase();
+  const patientRecord = getPatientByCode(id);
+  if (!patientRecord) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
   const ficha = hydrateFichaCampos(req.body);
   const { fecha } = req.body;
   const fechaStr = fecha || fechaHoy();
+  persistSessionRecord({
+    patientRecord,
+    fecha: fechaStr,
+    data: {
+      ...ficha,
+      pdfGeneratedBy: req.currentUser?.id || '',
+      pdfGeneratedAt: new Date().toISOString(),
+    },
+    currentUser: req.currentUser,
+  });
 
-  const pdfDir = path.join(SESIONES_DIR, id);
-  if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
-  const pdfPath = path.join(pdfDir, `${fechaStr}.pdf`);
+  const pdfDir = legacySessionDir(id);
+  const pdfPath = legacyPdfPath(id, fechaStr);
 
   const doc = new PDFDocument({ margin: 60, size: 'A4' });
   const stream = fs.createWriteStream(pdfPath);

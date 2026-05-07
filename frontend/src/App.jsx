@@ -2,15 +2,35 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API = '/api';
 const TOKEN_STORAGE_KEY = 'fisioapp-token';
+const USER_STORAGE_KEY = 'fisioapp-user';
 
 function getStoredToken() {
   if (typeof window === 'undefined') return '';
   return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
 }
 
-function clearStoredToken() {
+function getStoredUser() {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(USER_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function storeAuth(token, currentUser) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+}
+
+function clearStoredAuth() {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(USER_STORAGE_KEY);
 }
 
 async function apiFetch(path, options = {}) {
@@ -27,7 +47,7 @@ async function apiFetch(path, options = {}) {
   });
 
   if (response.status === 401) {
-    clearStoredToken();
+    clearStoredAuth();
     if (typeof window !== 'undefined') {
       window.location.reload();
     }
@@ -79,6 +99,25 @@ const normalizeFechaNacimiento = (value) => {
 
   return '';
 };
+
+const PERSONAL_FIELDS = [
+  'apellidos',
+  'nombre',
+  'edad',
+  'sexo',
+  'profesion',
+  'alturaPeso',
+  'diagnosticoMedico',
+  'fechaInicialAnomalia',
+  'tratamientosAfines',
+  'medicacion',
+  'pruebaImagen',
+];
+
+const pickPersonalFields = (data = {}) => PERSONAL_FIELDS.reduce((acc, field) => {
+  acc[field] = data[field] || '';
+  return acc;
+}, {});
 
 // ── Iconos SVG inline ─────────────────────────────────────────────────────────
 const IconMic = ({ size = 16, color = 'currentColor' }) => (
@@ -195,6 +234,20 @@ const s = {
   authTitle: { fontSize: 24, fontWeight: 500, letterSpacing: '-0.03em', marginBottom: 8 },
   authText: { color: 'var(--gray-600)', fontSize: 14, marginBottom: 20 },
   authError: { fontSize: 13, color: '#A14B2E', marginTop: 12 },
+  accordion: {
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)', marginBottom: 16, overflow: 'hidden',
+  },
+  accordionSummary: {
+    listStyle: 'none', cursor: 'pointer', padding: '18px 24px',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    borderBottom: '1px solid var(--border)',
+  },
+  select: {
+    width: '100%', padding: '9px 12px', fontSize: 14, border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)', background: 'var(--bg)', color: 'var(--gray-900)',
+    outline: 'none',
+  },
 };
 
 const FICHA_DEFAULTS = {
@@ -245,12 +298,13 @@ function sesionEsEditablePorDefecto(fecha) {
 }
 
 function VistaLogin({ onLoginCorrecto }) {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
 
   const acceder = async () => {
-    if (!password) return;
+    if (!username || !password) return;
     setError('');
     setCargando(true);
 
@@ -258,17 +312,17 @@ function VistaLogin({ onLoginCorrecto }) {
       const res = await fetch(`${API}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
 
-      if (data.success && data.token) {
-        localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
-        onLoginCorrecto(data.token);
+      if (data.success && data.token && data.currentUser) {
+        storeAuth(data.token, data.currentUser);
+        onLoginCorrecto(data.currentUser);
         return;
       }
 
-      setError('Contraseña incorrecta.');
+      setError('Usuario o contraseña incorrectos.');
     } catch {
       setError('No se pudo verificar el acceso.');
     } finally {
@@ -285,6 +339,16 @@ function VistaLogin({ onLoginCorrecto }) {
           Introduce la contraseña de acceso para abrir la aplicación clínica.
         </p>
 
+        <label style={s.label}>Usuario</label>
+        <input
+          style={{ ...s.input, marginBottom: 14 }}
+          type="text"
+          value={username}
+          placeholder="Usuario"
+          onChange={(e) => setUsername(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && acceder()}
+        />
+
         <label style={s.label}>Contraseña</label>
         <input
           style={s.input}
@@ -298,7 +362,7 @@ function VistaLogin({ onLoginCorrecto }) {
         {error && <p style={s.authError}>{error}</p>}
 
         <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={s.btnPrimary} onClick={acceder} disabled={cargando || !password}>
+          <button style={s.btnPrimary} onClick={acceder} disabled={cargando || !username || !password}>
             {cargando ? 'Verificando...' : 'Acceder'}
           </button>
         </div>
@@ -444,9 +508,23 @@ function CampoFicha({ label, value, onChange, placeholder, multiline = false, gr
   );
 }
 
+function SeccionDesplegable({ title, subtitle, children, defaultOpen = true }) {
+  return (
+    <details open={defaultOpen} style={s.accordion}>
+      <summary style={s.accordionSummary}>
+        <span style={s.cardTitle}>{title}</span>
+        <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>{subtitle}</span>
+      </summary>
+      <div style={{ padding: '18px 24px 20px' }}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 // ── Vista: Inicio / Buscador ──────────────────────────────────────────────────
 function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
-  const [fecha, setFecha] = useState('');
+  const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
   const [pacientes, setPacientes] = useState([]);
   const [buscado, setBuscado] = useState(false);
@@ -483,10 +561,10 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
   }, []);
 
   const buscar = async () => {
-    const isoFecha = normalizeFechaNacimiento(fecha);
-    if (!isoFecha) {
+    const query = consulta.trim();
+    if (!query) {
       setResultados([]);
-      setBuscado(Boolean(fecha.trim()));
+      setBuscado(false);
       return;
     }
 
@@ -494,7 +572,7 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
     setBuscado(false);
 
     try {
-      const res = await apiFetch(`/pacientes/buscar?fechaNacimiento=${encodeURIComponent(isoFecha)}`);
+      const res = await apiFetch(`/pacientes/buscar?q=${encodeURIComponent(query)}`);
       const data = await res.json();
       setResultados(data);
       setBuscado(true);
@@ -517,14 +595,14 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         <div style={s.cardHeader}>
           <span style={s.cardTitle}>Buscar paciente</span>
         </div>
-        <label style={s.label}>Fecha de nacimiento (DD/MM/YYYY, DD-MM-YYYY o YYYY-MM-DD)</label>
+        <label style={s.label}>ID, nombre o fecha de nacimiento</label>
         <div style={{ display: 'flex', gap: 10 }}>
           <input
             style={{ ...s.input, flex: 1 }}
             type="text"
-            placeholder="ej: 24/09/1991"
-            value={fecha}
-            onChange={e => setFecha(e.target.value)}
+            placeholder="ej: 1, Mario o 24/09/1991"
+            value={consulta}
+            onChange={e => setConsulta(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && buscar()}
           />
           <button style={s.btnPrimary} onClick={buscar} disabled={cargando}>
@@ -537,7 +615,7 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
           <div style={{ marginTop: 16 }}>
             {resultados.length === 0 ? (
               <p style={{ fontSize: 14, color: 'var(--gray-600)', padding: '12px 0' }}>
-                No se encontraron pacientes con esa fecha de nacimiento.
+                No se encontraron pacientes.
               </p>
             ) : (
               resultados.map(p => (
@@ -551,7 +629,13 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   }}
                 >
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--teal-mid)' }}>{p.id}</span>
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--teal-mid)' }}>ID: {p.id}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 3 }}>
+                      {p.displayName || 'Sin nombre guardado'}
+                      {p.fechaNacimiento ? ` · ${formatFecha(p.fechaNacimiento)}` : ''}
+                    </div>
+                  </div>
                   <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
                     {p.sesiones.length} {p.sesiones.length === 1 ? 'sesión' : 'sesiones'}
                   </span>
@@ -580,25 +664,36 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         ) : pacientes.length === 0 ? (
           <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>No hay pacientes guardados.</p>
         ) : (
-          pacientes.map((paciente) => (
-            <button
-              key={paciente.id}
-              onClick={() => onSeleccionarPaciente(paciente.id)}
-              style={{
-                width: '100%', textAlign: 'left', padding: '12px 14px',
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                background: 'var(--bg)', cursor: 'pointer', marginBottom: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--teal-mid)' }}>
-                ID: {paciente.id}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
-                {paciente.sesiones.length} {paciente.sesiones.length === 1 ? 'sesión' : 'sesiones'}
-              </span>
-            </button>
-          ))
+          <>
+            {pacientes.map((paciente) => (
+              <button
+                key={paciente.id}
+                onClick={() => onSeleccionarPaciente(paciente.id)}
+                style={{
+                  width: '100%', textAlign: 'left', padding: '12px 14px',
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg)', cursor: 'pointer', marginBottom: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--teal-mid)' }}>
+                    ID: {paciente.id}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 3 }}>
+                    {paciente.displayName || 'Sin nombre guardado'}
+                    {paciente.fechaNacimiento ? ` · ${formatFecha(paciente.fechaNacimiento)}` : ''}
+                  </div>
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
+                  {paciente.sesiones.length} {paciente.sesiones.length === 1 ? 'sesión' : 'sesiones'}
+                </span>
+              </button>
+            ))}
+            <p style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 8 }}>
+              Total de pacientes disponibles: {pacientes.length}
+            </p>
+          </>
         )}
       </div>
     </div>
@@ -688,6 +783,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [errorPDF, setErrorPDF] = useState('');
   const [infoPDF, setInfoPDF] = useState(null);
+  const [ultimaSesionBase, setUltimaSesionBase] = useState(FICHA_DEFAULTS);
 
   // Cargar sesiones del paciente
   useEffect(() => {
@@ -699,6 +795,9 @@ function VistaFicha({ pacienteId, onVolver }) {
         const hoy = fechaHoy();
         if ((d.sesiones || []).includes(hoy)) {
           cargarSesion(hoy);
+        } else if ((d.sesiones || []).length > 0) {
+          cargarSesionBase((d.sesiones || [])[0]);
+          abrirNuevaSesionDesdeBase((d.sesiones || [])[0]);
         } else {
           setSesionActiva('nueva');
           setEditable(true);
@@ -710,11 +809,23 @@ function VistaFicha({ pacienteId, onVolver }) {
       });
   }, [pacienteId]);
 
+  const cargarSesionBase = (fecha) => {
+    return apiFetch(`/sesiones/${pacienteId}/${fecha}`)
+      .then(r => r.json())
+      .then(d => {
+        const hidratados = hydrateFichaCampos(d);
+        setUltimaSesionBase(hidratados);
+        return hidratados;
+      })
+      .catch(() => FICHA_DEFAULTS);
+  };
+
   const cargarSesion = (fecha) => {
     apiFetch(`/sesiones/${pacienteId}/${fecha}`)
       .then(r => r.json())
       .then(d => {
         const hidratados = hydrateFichaCampos(d);
+        setUltimaSesionBase(hidratados);
         setCampos(hidratados);
         setCamposOriginales(hidratados);
         setSesionActiva(fecha);
@@ -722,11 +833,24 @@ function VistaFicha({ pacienteId, onVolver }) {
       });
   };
 
-  const nuevaSesion = () => {
-    setCampos(FICHA_DEFAULTS);
-    setCamposOriginales(FICHA_DEFAULTS);
+  const abrirNuevaSesionDesdeBase = async (fechaBase) => {
+    const base = fechaBase ? await cargarSesionBase(fechaBase) : ultimaSesionBase;
+    const nuevosCampos = {
+      ...FICHA_DEFAULTS,
+      ...pickPersonalFields(base),
+    };
+
+    setCampos(nuevosCampos);
+    setCamposOriginales(nuevosCampos);
     setSesionActiva('nueva');
     setEditable(true);
+    setErrorPDF('');
+    setInfoPDF(null);
+  };
+
+  const nuevaSesion = () => {
+    const fechaBase = sesiones[0] || null;
+    abrirNuevaSesionDesdeBase(fechaBase);
   };
 
   // Autoguardado con debounce
@@ -781,6 +905,9 @@ function VistaFicha({ pacienteId, onVolver }) {
   const generarPDF = async () => {
     setGenerandoPDF(true);
     setErrorPDF('');
+    if (infoPDF?.blobUrl) {
+      URL.revokeObjectURL(infoPDF.blobUrl);
+    }
     setInfoPDF(null);
     try {
       const res = await apiFetch(`/pdf/${pacienteId}`, {
@@ -801,17 +928,22 @@ function VistaFicha({ pacienteId, onVolver }) {
       const savedPath = res.headers.get('X-Pdf-Saved-Path') || '';
       const savedDir = res.headers.get('X-Pdf-Saved-Dir') || '';
 
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
       a.download = `${pacienteId}_${sesionActiva !== 'nueva' ? sesionActiva : fechaHoy()}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => {
+          window.open(blobUrl, '_blank', 'noopener,noreferrer');
+        }, 150);
+      }
 
       if (savedPath || savedDir) {
-        setInfoPDF({ savedPath, savedDir });
+        setInfoPDF({ savedPath, savedDir, blobUrl });
       }
     } catch (e) {
       console.error(e);
@@ -865,42 +997,46 @@ function VistaFicha({ pacienteId, onVolver }) {
       </div>
 
       {/* Historial + nueva sesión */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          onClick={nuevaSesion}
-          style={{
-            padding: '5px 12px', fontSize: 13, borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-            border: '1px dashed var(--teal-light)', background: sesionActiva === 'nueva' ? 'var(--teal-pale)' : 'transparent',
-            color: 'var(--teal-mid)', display: 'flex', alignItems: 'center', gap: 5,
-          }}
-        >
-          <IconPlus size={13} /> Nueva sesión
-        </button>
-        {sesiones.map(f => (
+      <div style={{ ...s.card, marginBottom: 20 }}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Sesiones</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
+          <div>
+            <label style={s.label}>Abrir sesión guardada</label>
+            <select
+              style={s.select}
+              value={sesionActiva === 'nueva' ? '' : (sesionActiva || '')}
+              onChange={(e) => {
+                if (e.target.value) {
+                  cargarSesion(e.target.value);
+                }
+              }}
+            >
+              <option value="">Selecciona una sesión</option>
+              {sesiones.map((fecha) => (
+                <option key={fecha} value={fecha}>
+                  {formatFecha(fecha)}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
-            key={f}
-            onClick={() => cargarSesion(f)}
+            onClick={nuevaSesion}
             style={{
-              padding: '5px 12px', fontSize: 13, borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-              border: '1px solid', fontFamily: 'var(--font-mono)',
-              borderColor: sesionActiva === f ? 'var(--teal-base)' : 'var(--border)',
-              background: sesionActiva === f ? 'var(--teal-pale)' : 'var(--surface)',
-              color: sesionActiva === f ? 'var(--teal-mid)' : 'var(--gray-600)',
+              ...s.btnPrimary,
+              whiteSpace: 'nowrap',
             }}
           >
-            {formatFecha(f)}
+            <IconPlus size={13} /> Nueva sesión
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* Plantilla: Revisión general */}
-      <div style={s.card}>
-        <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Registro de fisioterapia</span>
-          <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
-            {sesionActiva === 'nueva' ? formatFecha(fechaHoy()) : sesionActiva ? formatFecha(sesionActiva) : ''}
-          </span>
-        </div>
+      <SeccionDesplegable
+        title="Registro de fisioterapia"
+        subtitle={sesionActiva === 'nueva' ? formatFecha(fechaHoy()) : sesionActiva ? formatFecha(sesionActiva) : ''}
+      >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <CampoFicha
             label="Apellidos"
@@ -980,12 +1116,9 @@ function VistaFicha({ pacienteId, onVolver }) {
             readOnly={!editable}
           />
         </div>
-      </div>
+      </SeccionDesplegable>
 
-      <div style={s.card}>
-        <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Historia clínica y exploración</span>
-        </div>
+      <SeccionDesplegable title="Historia clínica y exploración" subtitle="Bloque desplegable">
         <CampoFicha
           label="Historia clínica"
           value={campos.historiaClinica}
@@ -1096,12 +1229,9 @@ function VistaFicha({ pacienteId, onVolver }) {
           multiline
           readOnly={!editable}
         />
-      </div>
+      </SeccionDesplegable>
 
-      <div style={s.card}>
-        <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Problemas y tratamiento</span>
-        </div>
+      <SeccionDesplegable title="Problemas y tratamiento" subtitle="Bloque desplegable">
         <CampoFicha
           label="Identificación de los problemas fisioterapéuticos"
           value={campos.problemasFisioterapeuticos}
@@ -1157,6 +1287,20 @@ function VistaFicha({ pacienteId, onVolver }) {
         {infoPDF && (
           <div style={{ fontSize: 13, color: 'var(--gray-600)', marginTop: 8, lineHeight: 1.5 }}>
             <p>PDF guardado en servidor: <span style={{ fontFamily: 'var(--font-mono)' }}>{infoPDF.savedPath}</span></p>
+            {infoPDF.blobUrl && (
+              <p>
+                PDF:
+                {' '}
+                <a
+                  href={infoPDF.blobUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: 'var(--teal-mid)' }}
+                >
+                  abrir PDF
+                </a>
+              </p>
+            )}
             {infoPDF.savedDir && (
               <p>
                 Carpeta:
@@ -1171,7 +1315,7 @@ function VistaFicha({ pacienteId, onVolver }) {
             )}
           </div>
         )}
-      </div>
+      </SeccionDesplegable>
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -1184,19 +1328,24 @@ function VistaFicha({ pacienteId, onVolver }) {
 // ── App principal ─────────────────────────────────────────────────────────────
 export default function App() {
   const [autenticado, setAutenticado] = useState(() => Boolean(getStoredToken()));
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
   const [vista, setVista] = useState('buscar'); // 'buscar' | 'crear' | 'ficha'
   const [pacienteActivo, setPacienteActivo] = useState(null);
 
   const abrirFicha = (id) => { setPacienteActivo(id); setVista('ficha'); };
   const cerrarSesion = () => {
-    clearStoredToken();
+    clearStoredAuth();
     setAutenticado(false);
+    setCurrentUser(null);
     setPacienteActivo(null);
     setVista('buscar');
   };
 
   if (!autenticado) {
-    return <VistaLogin onLoginCorrecto={() => setAutenticado(true)} />;
+    return <VistaLogin onLoginCorrecto={(user) => {
+      setCurrentUser(user);
+      setAutenticado(true);
+    }} />;
   }
 
   return (
@@ -1208,7 +1357,7 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--gray-600)', fontFamily: 'var(--font-mono)' }}>
-            acceso protegido
+            {currentUser?.displayName || 'acceso protegido'}
           </span>
           <button style={s.btnSecondary} onClick={cerrarSesion}>
             Cerrar sesión
