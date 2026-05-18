@@ -5,8 +5,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
-import multer from 'multer';
-import OpenAI from 'openai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,8 +65,6 @@ function ensureDataBootstrap() {
 
 ensureDataBootstrap();
 
-const upload = multer({ storage: multer.memoryStorage() });
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 app.use(cors());
 app.use(express.json());
@@ -884,24 +880,6 @@ app.post('/api/pdf/:id', (req, res) => {
   doc.end();
 });
 
-app.post('/api/transcribir', upload.single('audio'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No se recibió audio' });
-  if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY no configurada' });
-
-  try {
-    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
-    const file = new File([blob], 'audio.webm', { type: req.file.mimetype });
-    const transcripcion = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'es',
-    });
-    res.json({ texto: transcripcion.text });
-  } catch (error) {
-    console.error('Whisper error:', error);
-    res.status(500).json({ error: 'Error al transcribir' });
-  }
-});
 
 if (fs.existsSync(path.join(FRONTEND_DIR, 'index.html'))) {
   app.use(express.static(FRONTEND_DIR));
