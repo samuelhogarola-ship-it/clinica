@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const API = '/api';
 const TOKEN_STORAGE_KEY = 'fisioapp-token';
@@ -120,17 +120,6 @@ const pickPersonalFields = (data = {}) => PERSONAL_FIELDS.reduce((acc, field) =>
 }, {});
 
 // ── Iconos SVG inline ─────────────────────────────────────────────────────────
-const IconMic = ({ size = 16, color = 'currentColor' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="9" y="2" width="6" height="12" rx="3"/>
-    <path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>
-  </svg>
-);
-const IconStop = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-    <rect x="4" y="4" width="16" height="16" rx="2"/>
-  </svg>
-);
 const IconPDF = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -375,110 +364,7 @@ function VistaLogin({ onLoginCorrecto }) {
   );
 }
 
-// ── Componente: Campo con grabación ───────────────────────────────────────────
-function CampoGrabable({ label, value, onChange, placeholder, readOnly = false }) {
-  const [grabando, setGrabando] = useState(false);
-  const [error, setError] = useState('');
-  const mediaRef = useRef(null);
-  const chunksRef = useRef([]);
-
-  const iniciarGrabacion = async () => {
-    setError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      chunksRef.current = [];
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        const fd = new FormData();
-        fd.append('audio', blob, 'audio.webm');
-        try {
-          const res = await apiFetch('/transcribir', { method: 'POST', body: fd });
-          const data = await res.json();
-          if (data.texto) {
-            // Acumular: añadir texto con espacio si ya hay contenido
-            onChange(prev => {
-              const base = prev.trim();
-              return base ? `${base} ${data.texto.trim()}` : data.texto.trim();
-            });
-          } else {
-            setError(data.error || 'Error al transcribir');
-          }
-        } catch {
-          setError('No se pudo conectar con el servidor');
-        }
-      };
-      mr.start();
-      mediaRef.current = mr;
-      setGrabando(true);
-    } catch {
-      setError('No se pudo acceder al micrófono');
-    }
-  };
-
-  const detenerGrabacion = () => {
-    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
-      mediaRef.current.stop();
-    }
-    setGrabando(false);
-  };
-
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <label style={s.label}>{label}</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {grabando && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#D85A30' }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#D85A30', display: 'inline-block', animation: 'pulse 1s infinite' }} />
-              grabando...
-            </span>
-          )}
-          {!readOnly && (
-            <button
-              onClick={grabando ? detenerGrabacion : iniciarGrabacion}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
-                fontSize: 12, border: '1px solid', borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer', transition: 'all 0.15s',
-                background: grabando ? 'var(--teal-pale)' : 'transparent',
-                color: grabando ? 'var(--teal-mid)' : 'var(--gray-600)',
-                borderColor: grabando ? 'var(--teal-light)' : 'var(--border)',
-              }}
-            >
-              {grabando ? <IconStop size={13} /> : <IconMic size={13} />}
-              {grabando ? 'Detener' : 'Grabar'}
-            </button>
-          )}
-        </div>
-      </div>
-      <textarea
-        style={{ ...s.textarea, background: readOnly ? 'var(--surface)' : s.textarea.background }}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        readOnly={readOnly}
-      />
-      {error && <p style={{ fontSize: 12, color: '#D85A30', marginTop: 4 }}>{error}</p>}
-    </div>
-  );
-}
-
-function CampoFicha({ label, value, onChange, placeholder, multiline = false, grabable = false, readOnly = false }) {
-  if (multiline && grabable) {
-    return (
-      <CampoGrabable
-        label={label}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        readOnly={readOnly}
-      />
-    );
-  }
-
+function CampoFicha({ label, value, onChange, placeholder, multiline = false, readOnly = false }) {
   if (multiline) {
     return (
       <div style={{ marginBottom: 20 }}>
@@ -881,9 +767,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 
   const actualizarCampo = (campo, valor) => {
     if (!editable) return;
-    // Si valor es función (de la grabación acumulativa)
-    const nuevoValor = typeof valor === 'function' ? valor(campos[campo]) : valor;
-    const nuevoCampos = { ...campos, [campo]: nuevoValor };
+    const nuevoCampos = { ...campos, [campo]: valor };
     setCampos(nuevoCampos);
 
     if (sesionEsEditablePorDefecto(sesionActiva)) {
@@ -1125,7 +1009,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('historiaClinica', v)}
           placeholder="Historia clínica"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1134,7 +1017,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('anamnesis', v)}
           placeholder="Anamnesis"
           multiline
-          grabable
           readOnly={!editable}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -1159,7 +1041,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('inspeccionObservacion', v)}
           placeholder="Inspección y observación"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1168,7 +1049,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('palpacionDiagnostica', v)}
           placeholder="Palpación diagnóstica"
           multiline
-          grabable
           readOnly={!editable}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -1201,7 +1081,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('balanceArticular', v)}
           placeholder="Balance articular y disfunciones"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1218,7 +1097,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('valoracionFuncional', v)}
           placeholder="Valoración funcional"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1238,7 +1116,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('problemasFisioterapeuticos', v)}
           placeholder="Problemas fisioterapéuticos"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1255,7 +1132,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('planTratamiento', v)}
           placeholder="Plan de tratamiento"
           multiline
-          grabable
           readOnly={!editable}
         />
         <CampoFicha
@@ -1280,7 +1156,6 @@ function VistaFicha({ pacienteId, onVolver }) {
           onChange={(v) => actualizarCampo('evolucionExploracionTratamiento', v)}
           placeholder="Evolución, exploración y tratamiento"
           multiline
-          grabable
           readOnly={!editable}
         />
         {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 4 }}>{errorPDF}</p>}
@@ -1318,7 +1193,6 @@ function VistaFicha({ pacienteId, onVolver }) {
       </SeccionDesplegable>
 
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
         textarea:focus, input:focus { border-color: var(--teal-light) !important; box-shadow: 0 0 0 3px var(--teal-pale); }
       `}</style>
     </div>
