@@ -11,5 +11,33 @@
     "role": "fisio",
     "displayName": "Mario Roldán",
     "collegiateNumber": "13600"
+  },
+  {
+    "id": "CM13010",
+    "username": "carolina",
+    "role": "admin",
+    "displayName": "Carolina Marmissole",
+    "collegiateNumber": "13010"
+  },
+  {
+    "id": "RMV6040",
+    "username": "rocio",
+    "role": "admin",
+    "displayName": "Rocío Martín Vázquez-Díaz",
+    "collegiateNumber": "6040"
+  },
+  {
+    "id": "CS292908656",
+    "username": "carlos",
+    "role": "admin",
+    "displayName": "Carlos Salas Fernández",
+    "collegiateNumber": "292908656"
+  },
+  {
+    "id": "GMC11122",
+    "username": "gloria",
+    "role": "admin",
+    "displayName": "Gloria Muñoz Carrillo",
+    "collegiateNumber": "11122"
   }
 ]
