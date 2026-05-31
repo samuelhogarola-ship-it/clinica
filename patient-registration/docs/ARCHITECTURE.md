@@ -64,7 +64,7 @@ FORM 3 — Intake por app
 
 | Tabla            | Anon          | Authenticated |
 |------------------|---------------|---------------|
-| core_profiles    | INSERT, SELECT| ALL           |
+| core_profiles    | INSERT        | ALL           |
 | consents         | INSERT        | ALL           |
 | app_submissions  | INSERT        | ALL           |
 | app_records      | —             | ALL           |

@@ -45,19 +45,15 @@ create table if not exists public.core_profiles (
 alter table public.core_profiles enable row level security;
 revoke all on public.core_profiles from anon, authenticated;
 
--- Anon puede insertar y buscar por phone (para el matching del Form 2)
+-- Anon puede insertar perfiles mínimos.
+-- El matching del Form 2 se expone vía RPC security definer.
 grant insert on public.core_profiles to anon;
-grant select on public.core_profiles to anon;
 
 -- Staff tiene acceso completo
 grant all on public.core_profiles to authenticated;
 
 create policy "anon_insert_profile"
   on public.core_profiles for insert to anon with check (true);
-
-create policy "anon_select_for_matching"
-  on public.core_profiles for select to anon
-  using (true);  -- RLS más estricta en producción: filtrar por phone
 
 create policy "authenticated_all"
   on public.core_profiles for all to authenticated using (true);

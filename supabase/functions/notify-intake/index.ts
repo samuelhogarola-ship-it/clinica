@@ -5,9 +5,8 @@
  * Variables de entorno requeridas (supabase secrets set):
  *   RESEND_API_KEY   — API key de Resend
  *
- * Variables opcionales por proyecto (se pasan en intake.data o en config):
- *   La config por proyecto se lee del campo tenant_id del record.
- *   Añade un objeto TENANT_CONFIG en esta función o usa una tabla de config.
+ * Esta versión espera un payload con { record } procedente de app_submissions.
+ * Los datos de contacto se leen desde record.data.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -47,9 +46,14 @@ serve(async (req) => {
     return new Response("No record", { status: 400 });
   }
 
-  const tenant = TENANT_CONFIG[record.tenant_id] || DEFAULT_CONFIG;
-  const { name, email, phone, form_type, data, source, created_at } = record;
-  const extra = data || {};
+  const tenant = TENANT_CONFIG.clinica || DEFAULT_CONFIG;
+  const extra = record?.data || {};
+  const name = [extra.patient_name, extra.patient_surnames].filter(Boolean).join(" ").trim() || "Paciente sin nombre";
+  const email = extra.email || null;
+  const phone = extra.phone || null;
+  const formType = record?.app_id || "fisio";
+  const source = record?.submitted_by || "patient";
+  const createdAt = record?.created_at || new Date().toISOString();
 
   // Construye filas de campos extra
   const extraRows = Object.entries(extra)
@@ -68,7 +72,7 @@ serve(async (req) => {
       </div>
       <div style="background:#f7f8fa;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;">
         <h3 style="color:#002f6c;margin:0 0 16px">
-          Nuevo intake — <em>${form_type}</em>
+          Nuevo intake — <em>${formType}</em>
         </h3>
         <table style="width:100%;border-collapse:collapse;font-size:14px;">
           <tr>
@@ -86,7 +90,7 @@ serve(async (req) => {
           ${extraRows}
           <tr>
             <td style="padding:8px;color:#555"><strong>Origen</strong></td>
-            <td style="padding:8px;color:#888;font-size:12px">${source || "-"} · ${created_at}</td>
+            <td style="padding:8px;color:#888;font-size:12px">${source || "-"} · ${createdAt}</td>
           </tr>
         </table>
         ${email ? `
@@ -111,7 +115,7 @@ serve(async (req) => {
       from:     tenant.from,
       to:       [tenant.notify_to],
       reply_to: email || undefined,
-      subject:  `[${tenant.project_name}] Nuevo ${form_type} — ${name}`,
+      subject:  `[${tenant.project_name}] Nuevo ${formType} — ${name}`,
       html,
     }),
   });
