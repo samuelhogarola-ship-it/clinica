@@ -206,3 +206,46 @@ APP_PASSWORD=2026 npm start
 - `frontend/vite.config.js`
 - `frontend/src/App.jsx`
 - `README.md`
+
+## Flujo estático con Supabase
+
+Además de la app clínica privada, el repo incluye ahora un flujo estático para alta y ficha fisioterapéutica:
+
+- página pública: `frontend/registro.html`
+- Edge Function: `supabase/functions/submit-fisio-intake`
+- bucket de PDFs: `clinical-documents`
+
+### Qué hace
+
+1. El paciente o profesional rellena la ficha en `registro.html`.
+2. La Edge Function busca o crea el `core_profile`.
+3. Guarda el consentimiento en `consents`.
+4. Guarda la ficha en `app_submissions`.
+5. Genera un PDF clínico en Supabase.
+6. Sube el PDF a Storage y devuelve una URL firmada de descarga.
+
+### Variables necesarias en frontend
+
+Crear `frontend/.env`:
+
+```bash
+VITE_SUPABASE_URL=https://gdsiuoxmfveefgigyhhg.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_...
+```
+
+### Variables necesarias en Supabase Edge Functions
+
+Configurar secrets:
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_ANON_KEY=...
+```
+
+### Despliegue
+
+- aplicar migraciones de `supabase/migrations/`
+- desplegar `submit-fisio-intake`
+- compilar frontend con `npm run build --prefix frontend`
+- publicar la salida estática incluyendo `registro.html`
