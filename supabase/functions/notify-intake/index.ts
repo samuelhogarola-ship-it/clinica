@@ -21,17 +21,11 @@ const TENANT_CONFIG: Record<string, {
   project_name: string;
   from: string;
 }> = {
-  "agama": {
-    notify_to:    "ventas@agama.com.mx",
-    project_name: "AGAMA Pigmentos & Masterbatch",
-    from:         "AGAMA Web <onboarding@resend.dev>",
+  "clinica": {
+    notify_to:    "info@webfuengirola.com",
+    project_name: "Clínica",
+    from:         "Clínica <onboarding@resend.dev>",
   },
-  // Añade más proyectos aquí:
-  // "clinica-x": {
-  //   notify_to:    "admin@clinicax.com",
-  //   project_name: "Clínica X",
-  //   from:         "Clínica X <onboarding@resend.dev>",
-  // },
 };
 
 const DEFAULT_CONFIG = {

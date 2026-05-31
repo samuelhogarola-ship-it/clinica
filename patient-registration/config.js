@@ -10,6 +10,6 @@ export const CLINICA_CONFIG = {
   supabase_url:              "https://gdsiuoxmfveefgigyhhg.supabase.co",
   supabase_publishable_key:  "sb_publishable_lKLU7ordFQ0odrqmmn6teg_5v8b-FJ8",
 
-  notify_to: "ceo@agamaeu.com",   // cambiar al email real de la clínica
+  notify_to: "info@webfuengirola.com",
   resend_from: "Clínica <onboarding@resend.dev>",
 };
