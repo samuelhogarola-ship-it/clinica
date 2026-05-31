@@ -13,6 +13,8 @@ const app = express();
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const FALLBACK_DIST_DIR = path.join(__dirname, 'frontend', 'dist');
 const FRONTEND_DIR = fs.existsSync(path.join(PUBLIC_DIR, 'index.html')) ? PUBLIC_DIR : FALLBACK_DIST_DIR;
@@ -218,6 +220,304 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function formatSubmissionActor(currentUser) {
+  if (!currentUser) return 'staff';
+  return currentUser.displayName
+    ? `${currentUser.displayName} (${currentUser.id || currentUser.username || 'staff'})`
+    : (currentUser.id || currentUser.username || 'staff');
+}
+
+function appendInternalNote(existingNotes, extraNote, currentUser) {
+  const nextNote = String(extraNote || '').trim();
+  if (!nextNote) {
+    return existingNotes || null;
+  }
+
+  const actor = formatSubmissionActor(currentUser);
+  const timestamp = new Date().toISOString();
+  const entry = `[${timestamp}] ${actor}: ${nextNote}`;
+  return existingNotes ? `${existingNotes}\n${entry}` : entry;
+}
+
+async function supabaseRest(pathname, { method = 'GET', body, headers = {} } = {}) {
+  if (!isSupabaseConfigured()) {
+    const error = new Error('Supabase no configurado');
+    error.status = 503;
+    throw error;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1${pathname}`, {
+    method,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(errorText || 'Error en Supabase');
+    error.status = response.status;
+    throw error;
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+function encodeStoragePath(pathname) {
+  return String(pathname || '')
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+async function createSignedStorageUrl(bucket, storagePath, expiresIn = 60 * 30) {
+  if (!bucket || !storagePath) {
+    return '';
+  }
+
+  const encodedPath = encodeStoragePath(storagePath);
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${encodedPath}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ expiresIn }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(errorText || 'No se pudo firmar el documento');
+    error.status = response.status;
+    throw error;
+  }
+
+  const payload = await response.json();
+  const signedPath = payload?.signedURL || payload?.signedUrl || '';
+
+  if (!signedPath) {
+    return '';
+  }
+
+  if (/^https?:\/\//.test(signedPath)) {
+    return signedPath;
+  }
+
+  const normalizedPath = signedPath.startsWith('/') ? signedPath : `/${signedPath}`;
+  return `${SUPABASE_URL}/storage/v1${normalizedPath}`;
+}
+
+async function uploadStorageObject(bucket, storagePath, buffer, contentType = 'application/pdf') {
+  const encodedPath = encodeStoragePath(storagePath);
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${encodedPath}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
+    body: buffer,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(errorText || 'No se pudo subir el documento');
+    error.status = response.status;
+    throw error;
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+function mapSubmissionSummary(record) {
+  const profile = Array.isArray(record.core_profiles)
+    ? record.core_profiles[0] || null
+    : record.core_profiles || null;
+  const data = record.data && typeof record.data === 'object' ? record.data : {};
+
+  return {
+    id: record.id,
+    created_at: record.created_at,
+    profile_id: record.profile_id,
+    app_id: record.app_id,
+    form_version: record.form_version,
+    status: record.status,
+    submitted_by: record.submitted_by,
+    notes: record.notes || '',
+    reviewed_at: record.reviewed_at || '',
+    reviewed_by: record.reviewed_by || '',
+    archived_at: record.archived_at || '',
+    archived_by: record.archived_by || '',
+    data,
+    profile: profile ? {
+      id: profile.id,
+      registry_number: profile.registry_number,
+      name: profile.name,
+      surnames: profile.surnames,
+      phone: profile.phone,
+      email: profile.email,
+      birth_date: profile.birth_date,
+      profile_status: profile.profile_status,
+    } : null,
+  };
+}
+
+function mapSubmissionDocument(record) {
+  const data = record?.data && typeof record.data === 'object' ? record.data : {};
+  const pdfPath = data.pdf_path || data.storage_path || '';
+  const pdfBucket = data.pdf_bucket || 'clinical-documents';
+  const patientName = [data.patient_name || data.nombre || '', data.patient_surnames || data.apellidos || '']
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  return {
+    submission_id: record.id,
+    profile_id: record.profile_id,
+    created_at: record.created_at,
+    app_id: record.app_id,
+    status: record.status,
+    pdf_bucket: pdfBucket,
+    pdf_path: pdfPath,
+    pdf_filename: data.pdf_filename || (pdfPath ? pdfPath.split('/').pop() : ''),
+    submission_date: data.submission_date || '',
+    patient_name: patientName,
+  };
+}
+
+const PDF_SECTION_ROWS = [
+  {
+    title: 'Datos personales',
+    rows: [
+      ['Apellidos', 'apellidos'],
+      ['Nombre', 'nombre'],
+      ['Edad', 'edad'],
+      ['Sexo', 'sexo'],
+      ['Profesión', 'profesion'],
+      ['Altura / Peso', 'alturaPeso'],
+      ['Diagnóstico médico', 'diagnosticoMedico'],
+      ['Fecha inicial de anomalía', 'fechaInicialAnomalia'],
+      ['Tratamientos afines', 'tratamientosAfines'],
+      ['Medicación anterior / actual', 'medicacion'],
+      ['Prueba de imagen', 'pruebaImagen'],
+    ],
+  },
+  {
+    title: 'Historia clínica y exploración',
+    rows: [
+      ['Historia clínica', 'historiaClinica'],
+      ['Anamnesis', 'anamnesis'],
+      ['Antecedentes AL o AV', 'antecedentesALAV'],
+      ['Antecedentes AQ', 'antecedentesAQ'],
+      ['Inspección / observación', 'inspeccionObservacion'],
+      ['Palpación diagnóstica', 'palpacionDiagnostica'],
+      ['Sensibilidad en', 'sensibilidad'],
+      ['PGS', 'pgs'],
+      ['Balance muscular', 'balanceMuscular'],
+      ['Balance articular / movilidad + disfunciones', 'balanceArticular'],
+      ['Datos de interés', 'datosInteres'],
+      ['Valoración funcional', 'valoracionFuncional'],
+      ['Pruebas específicas', 'pruebasEspecificas'],
+    ],
+  },
+  {
+    title: 'Problemas y tratamiento',
+    rows: [
+      ['Problemas fisioterapéuticos', 'problemasFisioterapeuticos'],
+      ['Programa de fisioterapia', 'programaFisioterapia'],
+      ['Plan de tratamiento', 'planTratamiento'],
+      ['Recomendaciones a la familia', 'recomendacionesFamilia'],
+      ['Objetivos fisioterapéuticos', 'objetivosFisioterapeuticos'],
+      ['Evolución, exploración y tratamiento', 'evolucionExploracionTratamiento'],
+    ],
+  },
+];
+
+function formatDisplayDate(value) {
+  if (typeof value !== 'string' || !value) return '';
+  const normalized = normalizeFechaNacimiento(value);
+  const finalValue = normalized || value;
+  const parts = finalValue.split('-');
+  return parts.length === 3 ? parts.reverse().join('/') : finalValue;
+}
+
+async function buildClinicalPdfBuffer({ patientCode, submissionDate, ficha, subtitle = 'Informe de revisión clínica' }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 60, size: 'A4' });
+    const chunks = [];
+
+    const drawHeader = (currentSubtitle) => {
+      doc.rect(0, 0, doc.page.width, 80).fill('#0F6E56');
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('FisioApp', 60, 25);
+      doc.fillColor('#9FE1CB').font('Helvetica').fontSize(11).text(currentSubtitle, 60, 52);
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10)
+        .text(`ID Paciente: ${patientCode}`, 60, 25, { align: 'right' });
+      doc.fillColor('#9FE1CB').fontSize(10)
+        .text(`Fecha: ${formatDisplayDate(submissionDate)}`, 60, 40, { align: 'right' });
+      doc.moveDown(4);
+    };
+
+    const drawSection = (title, rows) => {
+      doc.fillColor('#0F6E56').font('Helvetica-Bold').fontSize(11)
+        .text(title.toUpperCase(), { characterSpacing: 1 });
+      doc.moveDown(0.3);
+      doc.rect(60, doc.y, doc.page.width - 120, 0.5).fill('#9FE1CB');
+      doc.moveDown(0.5);
+
+      rows.forEach(([label, key]) => {
+        doc.fillColor('#2C2C2A').font('Helvetica-Bold').fontSize(10).text(`${label}:`, { continued: true });
+        doc.font('Helvetica').text(` ${ficha[key] || '—'}`, {
+          lineGap: 4,
+        });
+        doc.moveDown(0.35);
+      });
+
+      doc.moveDown(1.5);
+    };
+
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('error', reject);
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    drawHeader(subtitle);
+    drawSection(PDF_SECTION_ROWS[0].title, PDF_SECTION_ROWS[0].rows);
+    drawSection(PDF_SECTION_ROWS[1].title, PDF_SECTION_ROWS[1].rows);
+
+    doc.addPage();
+    drawHeader('Continuación del registro');
+    drawSection(PDF_SECTION_ROWS[2].title, PDF_SECTION_ROWS[2].rows);
+
+    doc.fontSize(9).fillColor('#888780')
+      .text(
+        'Documento generado por FisioApp · Uso clínico interno · Datos anonimizados',
+        60,
+        doc.page.height - 40,
+        { align: 'center' }
+      );
+
+    doc.end();
+  });
 }
 
 function getSafeUser(user = {}) {
@@ -603,6 +903,282 @@ app.use('/api', (req, res, next) => {
   }
 
   requireAuth(req, res, next);
+});
+
+app.get('/api/intake/submissions', async (req, res) => {
+  try {
+    const status = typeof req.query.status === 'string' && req.query.status.trim()
+      ? req.query.status.trim()
+      : 'pending';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const query = new URLSearchParams({
+      select: 'id,created_at,profile_id,app_id,form_version,status,submitted_by,notes,reviewed_at,reviewed_by,archived_at,archived_by,data,core_profiles(id,registry_number,name,surnames,phone,email,birth_date,profile_status)',
+      order: 'created_at.desc',
+      limit: String(limit),
+    });
+
+    if (status !== 'all') {
+      query.set('status', `eq.${status}`);
+    }
+
+    const records = await supabaseRest(`/app_submissions?${query.toString()}`);
+    res.json(Array.isArray(records) ? records.map(mapSubmissionSummary) : []);
+  } catch (error) {
+    console.error('No se pudieron listar app_submissions:', error);
+    res.status(error.status || 500).json({
+      error: isSupabaseConfigured()
+        ? 'No se pudieron cargar los envíos pendientes'
+        : 'Supabase no está configurado en este entorno',
+    });
+  }
+});
+
+app.get('/api/intake/profiles/:profileId/documents', async (req, res) => {
+  const profileId = String(req.params.profileId || '').trim();
+
+  if (!profileId) {
+    res.status(400).json({ error: 'Falta el identificador del perfil' });
+    return;
+  }
+
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    const query = new URLSearchParams({
+      select: 'id,profile_id,created_at,app_id,status,data',
+      profile_id: `eq.${profileId}`,
+      order: 'created_at.desc',
+      limit: String(limit),
+    });
+    const records = await supabaseRest(`/app_submissions?${query.toString()}`);
+    const documents = [];
+
+    for (const record of Array.isArray(records) ? records : []) {
+      const document = mapSubmissionDocument(record);
+      if (!document.pdf_path) {
+        continue;
+      }
+
+      let signedUrl = '';
+      try {
+        signedUrl = await createSignedStorageUrl(document.pdf_bucket, document.pdf_path);
+      } catch (signError) {
+        console.error('No se pudo firmar documento clínico:', signError);
+      }
+
+      documents.push({
+        ...document,
+        signed_url: signedUrl,
+      });
+    }
+
+    res.json(documents);
+  } catch (error) {
+    console.error('No se pudieron listar documentos clínicos:', error);
+    res.status(error.status || 500).json({
+      error: isSupabaseConfigured()
+        ? 'No se pudieron cargar los documentos del paciente'
+        : 'Supabase no está configurado en este entorno',
+    });
+  }
+});
+
+app.post('/api/intake/submissions/:id/regenerate-pdf', async (req, res) => {
+  const submissionId = String(req.params.id || '').trim();
+
+  if (!submissionId) {
+    res.status(400).json({ error: 'Falta el identificador del envío' });
+    return;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      select: 'id,created_at,profile_id,app_id,form_version,status,submitted_by,notes,data,core_profiles(id,registry_number,name,surnames)',
+      id: `eq.${submissionId}`,
+      limit: '1',
+    });
+    const records = await supabaseRest(`/app_submissions?${query.toString()}`);
+    const submission = Array.isArray(records) ? records[0] : null;
+
+    if (!submission) {
+      res.status(404).json({ error: 'Envío no encontrado' });
+      return;
+    }
+
+    const profile = Array.isArray(submission.core_profiles)
+      ? submission.core_profiles[0] || null
+      : submission.core_profiles || null;
+    const data = submission.data && typeof submission.data === 'object' ? submission.data : {};
+    const registryNumber = profile?.registry_number || 'REG-SIN-CODIGO';
+    const ficha = hydrateFichaCampos(data);
+    const submissionDate = data.submission_date || normalizeFechaNacimiento(data.fecha) || fechaHoy();
+    const pdfPath = data.pdf_path || `${registryNumber}/${submission.id}/${submissionDate}.pdf`;
+    const pdfBucket = data.pdf_bucket || 'clinical-documents';
+    const actor = formatSubmissionActor(req.currentUser);
+    const now = new Date().toISOString();
+
+    const pdfBuffer = await buildClinicalPdfBuffer({
+      patientCode: registryNumber,
+      submissionDate,
+      ficha,
+      subtitle: 'Ficha fisioterapéutica regenerada desde datos guardados',
+    });
+
+    await uploadStorageObject(pdfBucket, pdfPath, pdfBuffer);
+    const signedUrl = await createSignedStorageUrl(pdfBucket, pdfPath);
+    const nextData = {
+      ...data,
+      pdf_bucket: pdfBucket,
+      pdf_path: pdfPath,
+      pdf_filename: data.pdf_filename || `${registryNumber}_${submissionDate}.pdf`,
+      pdf_regenerated_at: now,
+      pdf_regenerated_by: actor,
+    };
+    const nextNotes = appendInternalNote(
+      submission.notes,
+      'PDF regenerado desde los datos guardados del formulario estático',
+      req.currentUser,
+    );
+
+    await supabaseRest(`/app_submissions?id=eq.${submissionId}`, {
+      method: 'PATCH',
+      headers: {
+        Prefer: 'return=minimal',
+      },
+      body: {
+        data: nextData,
+        notes: nextNotes,
+      },
+    });
+
+    res.json({
+      ok: true,
+      submission_id: submissionId,
+      profile_id: submission.profile_id,
+      pdf_bucket: pdfBucket,
+      pdf_path: pdfPath,
+      pdf_filename: nextData.pdf_filename,
+      signed_url: signedUrl,
+      regenerated_at: now,
+      regenerated_by: actor,
+    });
+  } catch (error) {
+    console.error('No se pudo regenerar el PDF del envío:', error);
+    res.status(error.status || 500).json({
+      error: isSupabaseConfigured()
+        ? 'No se pudo regenerar el PDF del envío'
+        : 'Supabase no está configurado en este entorno',
+    });
+  }
+});
+
+app.post('/api/intake/submissions/:id/review', async (req, res) => {
+  const submissionId = String(req.params.id || '').trim();
+  const action = req.body?.action === 'archive' ? 'archive' : 'review';
+  const reviewerNotes = req.body?.reviewerNotes;
+
+  if (!submissionId) {
+    res.status(400).json({ error: 'Falta el identificador del envío' });
+    return;
+  }
+
+  try {
+    const submissionQuery = new URLSearchParams({
+      select: 'id,created_at,profile_id,app_id,form_version,status,submitted_by,notes,reviewed_at,reviewed_by,archived_at,archived_by,data',
+      id: `eq.${submissionId}`,
+      limit: '1',
+    });
+    const [submission] = await supabaseRest(`/app_submissions?${submissionQuery.toString()}`);
+
+    if (!submission) {
+      res.status(404).json({ error: 'Envío no encontrado' });
+      return;
+    }
+
+    const actor = formatSubmissionActor(req.currentUser);
+    const now = new Date().toISOString();
+    const nextNotes = appendInternalNote(submission.notes, reviewerNotes, req.currentUser);
+
+    if (action === 'review') {
+      const existingRecordQuery = new URLSearchParams({
+        select: 'id',
+        submission_id: `eq.${submissionId}`,
+        record_type: 'eq.intake_submission',
+        limit: '1',
+      });
+      const existingRecords = await supabaseRest(`/app_records?${existingRecordQuery.toString()}`);
+
+      if (!Array.isArray(existingRecords) || existingRecords.length === 0) {
+        await supabaseRest('/app_records', {
+          method: 'POST',
+          headers: {
+            Prefer: 'return=minimal',
+          },
+          body: {
+            profile_id: submission.profile_id,
+            app_id: submission.app_id,
+            record_type: 'intake_submission',
+            submission_id: submission.id,
+            created_by: actor,
+            data: {
+              ...(submission.data && typeof submission.data === 'object' ? submission.data : {}),
+              source_submission_id: submission.id,
+              source_form_version: submission.form_version || '',
+              reviewed_at: now,
+              reviewed_by: actor,
+            },
+          },
+        });
+      }
+
+      await supabaseRest(`/core_profiles?id=eq.${submission.profile_id}`, {
+        method: 'PATCH',
+        headers: {
+          Prefer: 'return=minimal',
+        },
+        body: {
+          profile_status: 'active',
+        },
+      });
+    }
+
+    const patchBody = action === 'archive'
+      ? {
+          status: 'archived',
+          archived_at: now,
+          archived_by: actor,
+          notes: nextNotes,
+        }
+      : {
+          status: 'reviewed',
+          reviewed_at: now,
+          reviewed_by: actor,
+          notes: nextNotes,
+        };
+
+    await supabaseRest(`/app_submissions?id=eq.${submissionId}`, {
+      method: 'PATCH',
+      headers: {
+        Prefer: 'return=representation',
+      },
+      body: patchBody,
+    });
+
+    res.json({
+      ok: true,
+      action,
+      submissionId,
+      reviewedBy: actor,
+      reviewedAt: action === 'review' ? now : '',
+      archivedAt: action === 'archive' ? now : '',
+    });
+  } catch (error) {
+    console.error('No se pudo procesar app_submission:', error);
+    res.status(error.status || 500).json({
+      error: isSupabaseConfigured()
+        ? 'No se pudo actualizar el envío'
+        : 'Supabase no está configurado en este entorno',
+    });
+  }
 });
 
 app.post('/api/pacientes', (req, res) => {

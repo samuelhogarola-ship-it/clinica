@@ -59,6 +59,15 @@ async function apiFetch(path, options = {}) {
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const fechaHoy = () => new Date().toISOString().split('T')[0];
 const formatFecha = (iso) => iso.split('-').reverse().join('/');
+const formatFechaHora = (iso) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+};
 const debounce = (fn, ms) => {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -118,6 +127,12 @@ const pickPersonalFields = (data = {}) => PERSONAL_FIELDS.reduce((acc, field) =>
   acc[field] = data[field] || '';
   return acc;
 }, {});
+
+const getSubmissionDisplayName = (submission) => {
+  const name = submission?.profile?.name || submission?.data?.nombre || '';
+  const surnames = submission?.profile?.surnames || submission?.data?.apellidos || '';
+  return [name, surnames].filter(Boolean).join(' ') || 'Paciente sin nombre';
+};
 
 // ── Iconos SVG inline ─────────────────────────────────────────────────────────
 const IconPDF = ({ size = 16 }) => (
@@ -408,8 +423,421 @@ function SeccionDesplegable({ title, subtitle, children, defaultOpen = true }) {
   );
 }
 
+function VistaSubmissions({ currentUser, onVolver }) {
+  const [submissions, setSubmissions] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [regeneratingDocumentId, setRegeneratingDocumentId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [reviewerNotes, setReviewerNotes] = useState('');
+
+  const selectedSubmission = submissions.find((submission) => submission.id === selectedId) || null;
+  const selectedFicha = selectedSubmission ? hydrateFichaCampos(selectedSubmission.data || {}) : FICHA_DEFAULTS;
+
+  const loadSubmissions = async ({ keepSelection = false } = {}) => {
+    setError('');
+    setSuccess('');
+    if (!keepSelection) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+
+    try {
+      const res = await apiFetch('/intake/submissions?status=pending&limit=100');
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudieron cargar los envíos');
+      }
+
+      const nextSubmissions = Array.isArray(data) ? data : [];
+      setSubmissions(nextSubmissions);
+
+      if (keepSelection && nextSubmissions.some((submission) => submission.id === selectedId)) {
+        return;
+      }
+
+      setSelectedId(nextSubmissions[0]?.id || '');
+    } catch (loadError) {
+      setSubmissions([]);
+      setSelectedId('');
+      setError(loadError.message || 'No se pudieron cargar los envíos');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSubmissions();
+  }, []);
+
+  useEffect(() => {
+    setReviewerNotes('');
+    setSuccess('');
+  }, [selectedId]);
+
+  useEffect(() => {
+    const profileId = selectedSubmission?.profile_id;
+
+    if (!profileId) {
+      setDocuments([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingDocuments(true);
+
+    apiFetch(`/intake/profiles/${profileId}/documents?limit=20`)
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (cancelled) return;
+        if (!ok) {
+          throw new Error(data.error || 'No se pudieron cargar los documentos');
+        }
+        setDocuments(Array.isArray(data) ? data : []);
+      })
+      .catch((docsError) => {
+        if (cancelled) return;
+        setDocuments([]);
+        setError((current) => current || docsError.message || 'No se pudieron cargar los documentos');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingDocuments(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubmission?.profile_id]);
+
+  const processSubmission = async (action) => {
+    if (!selectedSubmission) return;
+
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const res = await apiFetch(`/intake/submissions/${selectedSubmission.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          reviewerNotes,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo actualizar el envío');
+      }
+
+      setReviewerNotes('');
+      setSuccess(
+        action === 'archive'
+          ? 'Envío archivado correctamente.'
+          : 'Envío marcado como revisado y pasado a historial clínico.',
+      );
+      await loadSubmissions();
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudo actualizar el envío');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const regenerateDocument = async (submissionId) => {
+    if (!submissionId) return;
+
+    setRegeneratingDocumentId(submissionId);
+    setError('');
+    setSuccess('');
+
+    try {
+      const res = await apiFetch(`/intake/submissions/${submissionId}/regenerate-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo regenerar el PDF');
+      }
+
+      setDocuments((current) => current.map((document) => (
+        document.submission_id === submissionId
+          ? {
+              ...document,
+              pdf_bucket: data.pdf_bucket,
+              pdf_path: data.pdf_path,
+              pdf_filename: data.pdf_filename,
+              signed_url: data.signed_url,
+            }
+          : document
+      )));
+      setSuccess('PDF regenerado desde los datos guardados del formulario estático.');
+    } catch (regenerateError) {
+      setError(regenerateError.message || 'No se pudo regenerar el PDF');
+    } finally {
+      setRegeneratingDocumentId('');
+    }
+  };
+
+  return (
+    <div>
+      <button style={{ ...s.btnGhost, marginBottom: 24 }} onClick={onVolver}>
+        <IconBack size={15} /> Volver
+      </button>
+
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 500, marginBottom: 6, letterSpacing: '-0.02em' }}>
+          Revisión de envíos pendientes
+        </h2>
+        <p style={{ color: 'var(--gray-600)', fontSize: 14 }}>
+          Cola interna para validar formularios públicos y dejar trazabilidad de la revisión.
+        </p>
+      </div>
+
+      <div style={{ ...s.card, marginBottom: 20 }}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Bandeja de entrada</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
+              {loading ? 'Cargando...' : `${submissions.length} pendientes`}
+            </span>
+            <button style={s.btnSecondary} onClick={() => loadSubmissions({ keepSelection: true })} disabled={refreshing || loading}>
+              {refreshing ? 'Actualizando...' : 'Actualizar'}
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>Cargando envíos pendientes...</p>
+        ) : submissions.length === 0 ? (
+          <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>
+            No hay envíos pendientes ahora mismo.
+          </p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)', gap: 18 }}>
+            <div>
+              {submissions.map((submission) => {
+                const isActive = submission.id === selectedId;
+                return (
+                  <button
+                    key={submission.id}
+                    onClick={() => setSelectedId(submission.id)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '14px 16px',
+                      border: isActive ? '1px solid var(--teal-base)' : '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isActive ? 'var(--teal-pale)' : 'var(--bg)',
+                      cursor: 'pointer',
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <strong style={{ fontSize: 14 }}>{getSubmissionDisplayName(submission)}</strong>
+                      <span style={{ ...s.idChip, fontSize: 11 }}>{submission.app_id}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6, lineHeight: 1.5 }}>
+                      <div>{submission.profile?.registry_number || 'Sin registro'} · {submission.profile?.phone || submission.data?.phone || 'Sin teléfono'}</div>
+                      <div>{formatFechaHora(submission.created_at)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedSubmission && (
+              <div>
+                <div style={{ ...s.card, marginBottom: 16, padding: '18px 20px' }}>
+                  <div style={s.cardHeader}>
+                    <span style={s.cardTitle}>Resumen del envío</span>
+                    <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>
+                      Revisa {currentUser?.displayName || 'staff'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+                    <div>
+                      <label style={s.label}>Paciente</label>
+                      <div style={s.input}>{getSubmissionDisplayName(selectedSubmission)}</div>
+                    </div>
+                    <div>
+                      <label style={s.label}>Registro</label>
+                      <div style={s.input}>{selectedSubmission.profile?.registry_number || 'Pendiente'}</div>
+                    </div>
+                    <div>
+                      <label style={s.label}>Teléfono</label>
+                      <div style={s.input}>{selectedSubmission.profile?.phone || selectedSubmission.data?.phone || '—'}</div>
+                    </div>
+                    <div>
+                      <label style={s.label}>Email</label>
+                      <div style={s.input}>{selectedSubmission.profile?.email || selectedSubmission.data?.email || '—'}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+                    <span style={s.idChip}>{selectedSubmission.app_id}</span>
+                    {selectedSubmission.data?.pdf_signed_url && (
+                      <a
+                        href={selectedSubmission.data.pdf_signed_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ ...s.btnSecondary, textDecoration: 'none' }}
+                      >
+                        Ver PDF enviado
+                      </a>
+                    )}
+                  </div>
+
+                  <label style={s.label}>Notas internas de revisión</label>
+                  <textarea
+                    style={s.textarea}
+                    value={reviewerNotes}
+                    onChange={(event) => setReviewerNotes(event.target.value)}
+                    placeholder="Ej: validado con paciente, pendiente adjuntar prueba, archivado por duplicado..."
+                  />
+
+                  {selectedSubmission.notes && (
+                    <div style={{ marginTop: 12 }}>
+                      <label style={s.label}>Histórico de notas</label>
+                      <div style={{ ...s.textarea, background: 'var(--surface)', whiteSpace: 'pre-wrap' }}>
+                        {selectedSubmission.notes}
+                      </div>
+                    </div>
+                  )}
+
+                  {error && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 12 }}>{error}</p>}
+                  {success && <p style={{ fontSize: 13, color: 'var(--teal-dark)', marginTop: 12 }}>{success}</p>}
+
+                  <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+                    <button style={s.btnPrimary} onClick={() => processSubmission('review')} disabled={saving}>
+                      {saving ? 'Guardando...' : 'Marcar revisado'}
+                    </button>
+                    <button style={s.btnSecondary} onClick={() => processSubmission('archive')} disabled={saving}>
+                      Archivar
+                    </button>
+                  </div>
+                </div>
+
+                <SeccionDesplegable title="Datos personales" subtitle={selectedSubmission.form_version || 'sin versión'}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <CampoFicha label="Apellidos" value={selectedFicha.apellidos} onChange={() => {}} readOnly />
+                    <CampoFicha label="Nombre" value={selectedFicha.nombre} onChange={() => {}} readOnly />
+                    <CampoFicha label="Edad" value={selectedFicha.edad} onChange={() => {}} readOnly />
+                    <CampoFicha label="Sexo" value={selectedFicha.sexo} onChange={() => {}} readOnly />
+                    <CampoFicha label="Profesión" value={selectedFicha.profesion} onChange={() => {}} readOnly />
+                    <CampoFicha label="Altura / Peso" value={selectedFicha.alturaPeso} onChange={() => {}} readOnly />
+                    <CampoFicha label="Diagnóstico médico" value={selectedFicha.diagnosticoMedico} onChange={() => {}} readOnly />
+                    <CampoFicha label="Fecha inicial de anomalía" value={selectedFicha.fechaInicialAnomalia} onChange={() => {}} readOnly />
+                    <CampoFicha label="Tratamientos afines" value={selectedFicha.tratamientosAfines} onChange={() => {}} readOnly />
+                    <CampoFicha label="Medicación" value={selectedFicha.medicacion} onChange={() => {}} readOnly />
+                    <CampoFicha label="Prueba de imagen" value={selectedFicha.pruebaImagen} onChange={() => {}} readOnly />
+                  </div>
+                </SeccionDesplegable>
+
+                <SeccionDesplegable title="Documentos del paciente" subtitle="PDFs asociados" defaultOpen={false}>
+                  {loadingDocuments ? (
+                    <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>Cargando documentos...</p>
+                  ) : documents.length === 0 ? (
+                    <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>
+                      Este perfil todavía no tiene PDFs indexados desde el flujo público.
+                    </p>
+                  ) : (
+                    documents.map((document) => (
+                      <div
+                        key={`${document.submission_id}-${document.pdf_path}`}
+                        style={{
+                          padding: '12px 14px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          marginBottom: 10,
+                          background: 'var(--bg)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: 14 }}>{document.pdf_filename || 'Documento PDF'}</strong>
+                          <span style={{ ...s.idChip, fontSize: 11 }}>{document.status}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6, lineHeight: 1.5 }}>
+                          <div>{document.submission_date ? `Fecha clínica: ${formatFecha(document.submission_date)}` : `Envío: ${formatFechaHora(document.created_at)}`}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)' }}>{document.pdf_path}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                          {document.signed_url ? (
+                            <a
+                              href={document.signed_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ ...s.btnSecondary, textDecoration: 'none' }}
+                            >
+                              Abrir PDF
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 12, color: '#A14B2E' }}>
+                              No se pudo firmar la descarga en este momento.
+                            </span>
+                          )}
+                          <button
+                            style={s.btnSecondary}
+                            onClick={() => regenerateDocument(document.submission_id)}
+                            disabled={regeneratingDocumentId === document.submission_id}
+                          >
+                            {regeneratingDocumentId === document.submission_id ? 'Regenerando...' : 'Regenerar PDF'}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </SeccionDesplegable>
+
+                <SeccionDesplegable title="Historia clínica y exploración" subtitle="solo lectura" defaultOpen={false}>
+                  <CampoFicha label="Historia clínica" value={selectedFicha.historiaClinica} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Anamnesis" value={selectedFicha.anamnesis} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Antecedentes AL o AV" value={selectedFicha.antecedentesALAV} onChange={() => {}} readOnly />
+                  <CampoFicha label="Antecedentes AQ" value={selectedFicha.antecedentesAQ} onChange={() => {}} readOnly />
+                  <CampoFicha label="Inspección / observación" value={selectedFicha.inspeccionObservacion} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Palpación diagnóstica" value={selectedFicha.palpacionDiagnostica} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Sensibilidad en" value={selectedFicha.sensibilidad} onChange={() => {}} readOnly />
+                  <CampoFicha label="PGS" value={selectedFicha.pgs} onChange={() => {}} readOnly />
+                  <CampoFicha label="Balance muscular" value={selectedFicha.balanceMuscular} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Balance articular / movilidad + disfunciones" value={selectedFicha.balanceArticular} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Datos de interés" value={selectedFicha.datosInteres} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Valoración funcional" value={selectedFicha.valoracionFuncional} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Pruebas específicas" value={selectedFicha.pruebasEspecificas} onChange={() => {}} multiline readOnly />
+                </SeccionDesplegable>
+
+                <SeccionDesplegable title="Problemas y tratamiento" subtitle="solo lectura" defaultOpen={false}>
+                  <CampoFicha label="Problemas fisioterapéuticos" value={selectedFicha.problemasFisioterapeuticos} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Programa de fisioterapia" value={selectedFicha.programaFisioterapia} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Plan de tratamiento" value={selectedFicha.planTratamiento} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Recomendaciones a la familia" value={selectedFicha.recomendacionesFamilia} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Objetivos fisioterapéuticos" value={selectedFicha.objetivosFisioterapeuticos} onChange={() => {}} multiline readOnly />
+                  <CampoFicha label="Evolución, exploración y tratamiento" value={selectedFicha.evolucionExploracionTratamiento} onChange={() => {}} multiline readOnly />
+                </SeccionDesplegable>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Vista: Inicio / Buscador ──────────────────────────────────────────────────
-function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
+function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onAbrirPendientes }) {
   const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -537,6 +965,18 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         <button style={s.btnPrimary} onClick={onNuevoPaciente}>
           <IconPlus size={15} />
           Crear paciente
+        </button>
+      </div>
+
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <div style={s.cardHeader}>
+          <span style={s.cardTitle}>Operación clínica</span>
+        </div>
+        <p style={{ fontSize: 14, color: 'var(--gray-600)', marginBottom: 14 }}>
+          Revisa los formularios públicos pendientes y conviértelos en historial clínico interno.
+        </p>
+        <button style={s.btnPrimary} onClick={onAbrirPendientes}>
+          Revisar envíos pendientes
         </button>
       </div>
 
@@ -1203,7 +1643,7 @@ function VistaFicha({ pacienteId, onVolver }) {
 export default function App() {
   const [autenticado, setAutenticado] = useState(() => Boolean(getStoredToken()));
   const [currentUser, setCurrentUser] = useState(() => getStoredUser());
-  const [vista, setVista] = useState('buscar'); // 'buscar' | 'crear' | 'ficha'
+  const [vista, setVista] = useState('buscar'); // 'buscar' | 'crear' | 'ficha' | 'submissions'
   const [pacienteActivo, setPacienteActivo] = useState(null);
 
   const abrirFicha = (id) => { setPacienteActivo(id); setVista('ficha'); };
@@ -1244,6 +1684,7 @@ export default function App() {
           <VistaBuscador
             onSeleccionarPaciente={abrirFicha}
             onNuevoPaciente={() => setVista('crear')}
+            onAbrirPendientes={() => setVista('submissions')}
           />
         )}
         {vista === 'crear' && (
@@ -1255,6 +1696,12 @@ export default function App() {
         {vista === 'ficha' && (
           <VistaFicha
             pacienteId={pacienteActivo}
+            onVolver={() => setVista('buscar')}
+          />
+        )}
+        {vista === 'submissions' && (
+          <VistaSubmissions
+            currentUser={currentUser}
             onVolver={() => setVista('buscar')}
           />
         )}
