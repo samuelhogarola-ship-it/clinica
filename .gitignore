@@ -9,3 +9,8 @@ backend/datos/
 fisioapp/
 fisioapp.zip
 fichas/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+.tmp-e2e-data/
