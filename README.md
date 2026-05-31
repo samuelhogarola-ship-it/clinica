@@ -180,7 +180,11 @@ Define estas variables en `backend/.env`:
 OPENAI_API_KEY=sk-...
 APP_PASSWORD=2026
 DATA_DIR=./datos
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
+
+Las dos variables de Supabase son necesarias para la bandeja interna de revisión de `app_submissions`.
 
 ### Arranque
 

@@ -5,7 +5,7 @@ const starterConfig = await loadStarterConfig();
 
 export default defineConfig({
   testDir: "./",
-  testMatch: ["smoke.spec.js", "navigation.spec.js", "seo.spec.js", "forms.spec.js"],
+  testMatch: ["smoke.spec.js", "navigation.spec.js", "seo.spec.js", "forms.spec.js", "static-registration.spec.js"],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

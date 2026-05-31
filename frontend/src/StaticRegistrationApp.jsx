@@ -380,6 +380,7 @@ export function StaticRegistrationApp() {
             <label style={styles.checkboxRow}>
               <input
                 type="checkbox"
+                required
                 checked={formState.rgpd}
                 onChange={(event) => updateField('rgpd', event.target.checked)}
               />
@@ -388,6 +389,7 @@ export function StaticRegistrationApp() {
             <label style={styles.checkboxRow}>
               <input
                 type="checkbox"
+                required
                 checked={formState.privacy_policy}
                 onChange={(event) => updateField('privacy_policy', event.target.checked)}
               />
