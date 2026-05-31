@@ -5,6 +5,7 @@ dist/
 .claude/
 backend/.env
 frontend/.env
+supabase/.temp/
 backend/datos/
 fisioapp/
 fisioapp.zip
