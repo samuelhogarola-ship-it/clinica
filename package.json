@@ -5,6 +5,7 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "prepare": "husky",
     "dev": "node --watch server.js",
     "dev:backend": "PORT=3001 node --watch server.js",
     "dev:frontend": "npm run dev --prefix frontend",
@@ -25,6 +26,7 @@
     "pdfkit": "^0.15.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "@playwright/test": "^1.60.0",
+    "husky": "^9.1.7"
   }
 }

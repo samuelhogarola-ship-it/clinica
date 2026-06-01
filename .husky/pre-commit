@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+
+set -eu
+
+run_if_script_exists() {
+  script_name="$1"
+
+  if node -e '
+    const fs = require("fs");
+    const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    process.exit(pkg.scripts && pkg.scripts[process.argv[1]] ? 0 : 1);
+  ' "$script_name"; then
+    echo "husky: running npm run ${script_name}"
+    npm run "${script_name}"
+  else
+    echo "husky: skipping ${script_name} (script not found)"
+  fi
+}
+
+run_if_script_exists "lint"
+run_if_script_exists "typecheck"
+run_if_script_exists "test:unit"
