@@ -1,13 +1,13 @@
 export default {
   baseUrl: 'http://127.0.0.1:4183',
   webServer: {
-    command: "/bin/zsh -lc 'mkdir -p .tmp-e2e-data && PORT=3001 APP_PASSWORD=testpass DATA_DIR=.tmp-e2e-data VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=sb_publishable_test npm run dev --prefix frontend -- --host 127.0.0.1 --port 4183'",
+    command: "/bin/zsh -lc 'mkdir -p .tmp-e2e-data && VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=sb_publishable_test npm run build && PORT=4183 APP_PASSWORD=testpass DATA_DIR=.tmp-e2e-data SUPABASE_URL=https://example.supabase.co SUPABASE_SERVICE_ROLE_KEY=service_role_test node server.js'",
     cwd: '/Users/sam/.codex/worktrees/34f1/clinica',
     url: 'http://127.0.0.1:4183',
     reuseExistingServer: false,
     timeout: 120000
   },
-  pages: ['/', '/registro.html'],
+  pages: ['/fisio', '/admin', '/registro.html'],
   smoke: {
     requireH1: true,
     requireFooter: false
