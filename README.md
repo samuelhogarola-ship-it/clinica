@@ -14,6 +14,12 @@ clinica/
 └── render.yaml
 ```
 
+## Superficies actuales
+
+- `/fisio` → app interna para fisioterapeutas
+- `/admin` → panel interno de revisión e intake
+- `/registro.html` → flujo público estático con Supabase
+
 ## Hostinger
 
 La app está reorganizada para seguir el mismo patrón que tus otros repos Node para Hostinger:
@@ -65,6 +71,12 @@ npm run dev --prefix frontend
 ```
 
 Abre [http://localhost:5173](http://localhost:5173).
+
+En producción/local con Node compilado:
+
+- [http://localhost:3000/fisio](http://localhost:3000/fisio)
+- [http://localhost:3000/admin](http://localhost:3000/admin)
+- [http://localhost:3000/registro.html](http://localhost:3000/registro.html)
 
 ## Preview remota
 
