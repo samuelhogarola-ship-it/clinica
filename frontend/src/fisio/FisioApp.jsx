@@ -26,7 +26,7 @@ import {
 const FISIO_API = '/api/fisio';
 const FISIO_AUTH_SCOPE = 'fisio';
 
-function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
+function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onSesionRapida, isDemo }) {
   const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -179,6 +179,19 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
         </div>
       )}
 
+      <div style={{ ...s.card, marginTop: 16, border: '1px dashed var(--border)', background: 'transparent' }}>
+        <div style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 10 }}>
+          ⚠️ <strong>No recomendado</strong> — para pacientes que acuden sin haber completado el registro previo.
+          Se recomienda que el paciente complete el formulario de registro antes de la sesión.
+        </div>
+        <button
+          style={{ ...s.btnSecondary, width: '100%', justifyContent: 'center' }}
+          onClick={onSesionRapida}
+        >
+          Continuar con nuevo paciente sin registro
+        </button>
+      </div>
+
       <div style={{ ...s.card, marginTop: 24 }}>
         <div style={s.cardHeader}>
           <span style={s.cardTitle}>Pacientes existentes</span>
@@ -221,6 +234,110 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function VistaSesionRapida({ onVolver, isDemo }) {
+  const [campos, setCampos] = useState(FICHA_DEFAULTS);
+  const [generandoPDF, setGenerandoPDF] = useState(false);
+  const [infoPDF, setInfoPDF] = useState(null);
+  const [errorPDF, setErrorPDF] = useState('');
+  const [demoMsg, setDemoMsg] = useState('');
+
+  const tempId = `WALK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+
+  const actualizarCampo = (campo, valor) => {
+    if (isDemo) return;
+    setCampos((prev) => ({ ...prev, [campo]: valor }));
+  };
+
+  const generarPDF = async () => {
+    if (isDemo) {
+      setDemoMsg('Aquí se genera la ficha con tu formato elegido');
+      return;
+    }
+    setGenerandoPDF(true);
+    setErrorPDF('');
+    setInfoPDF(null);
+    try {
+      const res = await apiFetch('/pdf/walk-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...campos, fecha: new Date().toISOString().slice(0, 10) }),
+      }, FISIO_API, FISIO_AUTH_SCOPE);
+      if (!res.ok) throw new Error('No se pudo generar el PDF');
+      const blob = await res.blob();
+      if (!blob.size) throw new Error('El PDF llegó vacío');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${tempId}_sesion_rapida.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setInfoPDF({ blobUrl });
+    } catch {
+      setErrorPDF('No se pudo generar el PDF.');
+    } finally {
+      setGenerandoPDF(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <button style={s.btnGhost} onClick={onVolver}><IconBack size={15} /></button>
+        <span style={{ fontSize: 16, fontWeight: 500 }}>Sesión sin registro</span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', marginBottom: 20, background: '#fff8ec', border: '1px solid #f0d080', borderRadius: 10 }}>
+        <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+        <div style={{ fontSize: 13, color: '#7a5a00', lineHeight: 1.5 }}>
+          <strong>No recomendado.</strong> Usa esta opción solo si el paciente acude sin haberse registrado previamente.
+          Se recomienda pedirle que complete el formulario de registro antes o después de la sesión.
+          Esta ficha no quedará vinculada a ningún expediente.
+        </div>
+      </div>
+
+      {demoMsg && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#f0f6ff', border: '1px solid #c8dcf8', borderRadius: 10 }}>
+          <span style={{ fontSize: 13, color: '#2f5a9e' }}>💡 {demoMsg}</span>
+          <button style={{ ...s.btnGhost, fontSize: 12 }} onClick={() => setDemoMsg('')}>✕</button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
+          <IconPDF size={15} />
+          {generandoPDF ? 'Generando...' : 'Generar PDF'}
+        </button>
+      </div>
+
+      {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginBottom: 12 }}>{errorPDF}</p>}
+
+      <div style={s.card}>
+        <div style={s.cardHeader}><span style={s.cardTitle}>Registro de fisioterapia</span></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <CampoFicha label="Apellidos" value={campos.apellidos} onChange={(v) => actualizarCampo('apellidos', v)} placeholder="Apellidos del paciente" readOnly={isDemo} />
+          <CampoFicha label="Nombre" value={campos.nombre} onChange={(v) => actualizarCampo('nombre', v)} placeholder="Nombre del paciente" readOnly={isDemo} />
+          <CampoFicha label="Edad" value={campos.edad} onChange={(v) => actualizarCampo('edad', v)} placeholder="Edad" readOnly={isDemo} />
+          <CampoFicha label="Sexo" value={campos.sexo} onChange={(v) => actualizarCampo('sexo', v)} placeholder="Sexo" readOnly={isDemo} />
+          <CampoFicha label="Diagnóstico médico" value={campos.diagnosticoMedico} onChange={(v) => actualizarCampo('diagnosticoMedico', v)} placeholder="Diagnóstico médico" readOnly={isDemo} />
+          <CampoFicha label="Profesión" value={campos.profesion} onChange={(v) => actualizarCampo('profesion', v)} placeholder="Profesión" readOnly={isDemo} />
+        </div>
+      </div>
+
+      <SeccionDesplegable title="Historia clínica y exploración" subtitle="Bloque desplegable">
+        <CampoFicha label="Historia clínica" value={campos.historiaClinica} onChange={(v) => actualizarCampo('historiaClinica', v)} placeholder="Historia clínica" multiline readOnly={isDemo} />
+        <CampoFicha label="Anamnesis" value={campos.anamnesis} onChange={(v) => actualizarCampo('anamnesis', v)} placeholder="Anamnesis" multiline readOnly={isDemo} />
+      </SeccionDesplegable>
+
+      <SeccionDesplegable title="Problemas y tratamiento" subtitle="Bloque desplegable">
+        <CampoFicha label="Diagnóstico fisioterápico" value={campos.problemasFisioterapeuticos} onChange={(v) => actualizarCampo('problemasFisioterapeuticos', v)} placeholder="Problemas" multiline readOnly={isDemo} />
+        <CampoFicha label="Plan de tratamiento" value={campos.planTratamiento} onChange={(v) => actualizarCampo('planTratamiento', v)} placeholder="Plan de tratamiento" multiline readOnly={isDemo} />
+        <CampoFicha label="Evolución y exploración" value={campos.evolucionExploracionTratamiento} onChange={(v) => actualizarCampo('evolucionExploracionTratamiento', v)} placeholder="Evolución" multiline readOnly={isDemo} />
+      </SeccionDesplegable>
     </div>
   );
 }
@@ -741,6 +858,7 @@ export function FisioApp() {
           <VistaBuscador
             onSeleccionarPaciente={abrirFicha}
             onNuevoPaciente={() => setVista('crear')}
+            onSesionRapida={() => setVista('sesion-rapida')}
             isDemo={Boolean(currentUser?.isDemo)}
           />
         )}
@@ -753,6 +871,12 @@ export function FisioApp() {
         {vista === 'ficha' && (
           <VistaFicha
             pacienteId={pacienteActivo}
+            onVolver={() => setVista('buscar')}
+            isDemo={Boolean(currentUser?.isDemo)}
+          />
+        )}
+        {vista === 'sesion-rapida' && (
+          <VistaSesionRapida
             onVolver={() => setVista('buscar')}
             isDemo={Boolean(currentUser?.isDemo)}
           />

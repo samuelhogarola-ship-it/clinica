@@ -1875,6 +1875,61 @@ app.get(['/api/pdf/:id/:fecha', '/api/fisio/pdf/:id/:fecha'], (req, res) => {
   res.download(pdfPath, `${id}_${fecha}.pdf`);
 });
 
+// Walk-in PDF: generates a one-off PDF without requiring a patient record.
+// The session data is NOT persisted. Requires authenticated (non-demo) user.
+app.post(['/api/pdf/walk-in', '/api/fisio/pdf/walk-in'], requireAdmin, (req, res) => {
+  const fechaStr = String(req.body.fecha || fechaHoy()).trim();
+  const ficha = hydrateFichaCampos(req.body);
+  const tempId = `WALK-${fechaStr.replace(/-/g, '')}`;
+
+  const doc = new PDFDocument({ margin: 60, size: 'A4' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${tempId}_sesion_rapida.pdf"`);
+  doc.pipe(res);
+
+  doc.rect(0, 0, doc.page.width, 80).fill('#0F6E56');
+  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('FisioApp', 60, 25);
+  doc.fillColor('#9FE1CB').font('Helvetica').fontSize(11).text('Sesión sin registro previo', 60, 52);
+  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10)
+    .text('Sin expediente asignado', 60, 25, { align: 'right' });
+  doc.fillColor('#9FE1CB').fontSize(10)
+    .text(`Fecha: ${fechaStr.split('-').reverse().join('/')}`, 60, 40, { align: 'right' });
+  doc.moveDown(4);
+
+  const seccion = (titulo, rows) => {
+    doc.fillColor('#0F6E56').font('Helvetica-Bold').fontSize(11).text(titulo.toUpperCase(), { characterSpacing: 1 });
+    doc.moveDown(0.3);
+    doc.rect(60, doc.y, doc.page.width - 120, 0.5).fill('#9FE1CB');
+    doc.moveDown(0.5);
+    rows.forEach(({ label, value }) => {
+      doc.fillColor('#2C2C2A').font('Helvetica-Bold').fontSize(10).text(`${label}:`, { continued: true });
+      doc.font('Helvetica').text(` ${value || '—'}`, { lineGap: 4 });
+      doc.moveDown(0.35);
+    });
+    doc.moveDown(1.5);
+  };
+
+  seccion('Datos personales', [
+    { label: 'Apellidos', value: ficha.apellidos },
+    { label: 'Nombre', value: ficha.nombre },
+    { label: 'Edad', value: ficha.edad },
+    { label: 'Sexo', value: ficha.sexo },
+    { label: 'Profesión', value: ficha.profesion },
+    { label: 'Diagnóstico médico', value: ficha.diagnosticoMedico },
+  ]);
+  seccion('Historia clínica y exploración', [
+    { label: 'Historia clínica', value: ficha.historiaClinica },
+    { label: 'Anamnesis', value: ficha.anamnesis },
+  ]);
+  seccion('Problemas y tratamiento', [
+    { label: 'Diagnóstico fisioterápico', value: ficha.problemasFisioterapeuticos },
+    { label: 'Plan de tratamiento', value: ficha.planTratamiento },
+    { label: 'Evolución y exploración', value: ficha.evolucionExploracionTratamiento },
+  ]);
+
+  doc.end();
+});
+
 app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], requireAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
