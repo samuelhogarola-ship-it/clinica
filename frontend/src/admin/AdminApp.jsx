@@ -844,6 +844,12 @@ function VistaPacientes() {
   );
 }
 
+const DEMO_CLIENTS = [
+  { id: 'CLI-1001', displayName: 'Pepito' },
+  { id: 'CLI-1002', displayName: 'Fulanita' },
+  { id: 'CLI-1003', displayName: 'Menganito' },
+];
+
 function VistaContabilidad({ overview }) {
   const [financeSection, setFinanceSection] = useState('invoices');
   const paymentTotals = {
@@ -909,12 +915,6 @@ function VistaContabilidad({ overview }) {
 
   useEffect(() => {
     let cancelled = false;
-
-    const DEMO_CLIENTS = [
-      { id: 'CLI-1001', displayName: 'Pepito' },
-      { id: 'CLI-1002', displayName: 'Fulanita' },
-      { id: 'CLI-1003', displayName: 'Menganito' },
-    ];
 
     apiFetch('/pacientes', {}, ADMIN_API, ADMIN_AUTH_SCOPE)
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))

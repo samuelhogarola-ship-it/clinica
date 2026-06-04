@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CampoFicha,
   FICHA_DEFAULTS,
@@ -26,6 +26,12 @@ import {
 const FISIO_API = '/api/fisio';
 const FISIO_AUTH_SCOPE = 'fisio';
 
+const DEMO_PATIENTS = [
+  { id: 'CLI-1001', displayName: 'Pepito', fechaNacimiento: '1990-04-12', sesiones: ['2026-06-02', '2026-05-21', '2026-05-10'] },
+  { id: 'CLI-1002', displayName: 'Fulanita', fechaNacimiento: '1988-09-03', sesiones: ['2026-05-30', '2026-05-16', '2026-05-02'] },
+  { id: 'CLI-1003', displayName: 'Menganito', fechaNacimiento: '1995-01-24', sesiones: ['2026-06-01', '2026-05-20', '2026-05-08'] },
+];
+
 function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onSesionRapida, isDemo }) {
   const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
@@ -36,12 +42,6 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onSesionRapida,
 
   useEffect(() => {
     let cancelled = false;
-
-    const DEMO_PATIENTS = [
-      { id: 'CLI-1001', displayName: 'Pepito', fechaNacimiento: '1990-04-12', sesiones: ['2026-06-02', '2026-05-21', '2026-05-10'] },
-      { id: 'CLI-1002', displayName: 'Fulanita', fechaNacimiento: '1988-09-03', sesiones: ['2026-05-30', '2026-05-16', '2026-05-02'] },
-      { id: 'CLI-1003', displayName: 'Menganito', fechaNacimiento: '1995-01-24', sesiones: ['2026-06-01', '2026-05-20', '2026-05-08'] },
-    ];
 
     const cargarPacientes = async () => {
       setCargandoPacientes(true);
@@ -245,7 +245,7 @@ function VistaSesionRapida({ onVolver, isDemo }) {
   const [errorPDF, setErrorPDF] = useState('');
   const [demoMsg, setDemoMsg] = useState('');
 
-  const tempId = `WALK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+  const tempId = useMemo(() => `WALK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`, []);
 
   const actualizarCampo = (campo, valor) => {
     if (isDemo) return;
@@ -276,7 +276,8 @@ function VistaSesionRapida({ onVolver, isDemo }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setInfoPDF({ blobUrl });
+      URL.revokeObjectURL(blobUrl);
+      setInfoPDF({ downloaded: true });
     } catch {
       setErrorPDF('No se pudo generar el PDF.');
     } finally {

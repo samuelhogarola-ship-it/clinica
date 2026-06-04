@@ -1291,6 +1291,20 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Requires a real (non-demo) user with admin or fisio role.
+function requireFisioOrAdmin(req, res, next) {
+  const role = normalizeText(req.currentUser?.role || '');
+  if (role !== 'admin' && role !== 'fisio') {
+    res.status(403).json({ error: 'Forbidden: admin or fisio role required.' });
+    return;
+  }
+  if (req.currentUser.isDemo) {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
+    return;
+  }
+  next();
+}
+
 // Blocks any write (non-GET/HEAD) request from a demo session.
 function denyDemoWrites(req, res, next) {
   if (req.currentUser?.isDemo && req.method !== 'GET' && req.method !== 'HEAD') {
@@ -1648,7 +1662,7 @@ app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:
   }
 });
 
-app.post(['/api/pacientes', '/api/fisio/pacientes'], requireAdmin, (req, res) => {
+app.post(['/api/pacientes', '/api/fisio/pacientes'], requireFisioOrAdmin, (req, res) => {
   const { id, fechaNacimiento } = req.body;
   if (!id || !fechaNacimiento) return res.status(400).json({ error: 'Faltan campos' });
   const codigoPaciente = String(id).trim().toUpperCase();
@@ -1805,7 +1819,7 @@ app.get('/api/admin/billing/profile-records', async (req, res) => {
   }
 });
 
-app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], requireAdmin, (req, res) => {
+app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], requireFisioOrAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) return res.status(404).json({ error: 'Paciente no encontrado' });
@@ -1877,7 +1891,7 @@ app.get(['/api/pdf/:id/:fecha', '/api/fisio/pdf/:id/:fecha'], (req, res) => {
 
 // Walk-in PDF: generates a one-off PDF without requiring a patient record.
 // The session data is NOT persisted. Requires authenticated (non-demo) user.
-app.post(['/api/pdf/walk-in', '/api/fisio/pdf/walk-in'], requireAdmin, (req, res) => {
+app.post(['/api/pdf/walk-in', '/api/fisio/pdf/walk-in'], requireFisioOrAdmin, (req, res) => {
   const fechaStr = String(req.body.fecha || fechaHoy()).trim();
   const ficha = hydrateFichaCampos(req.body);
   const tempId = `WALK-${fechaStr.replace(/-/g, '')}`;
@@ -1930,7 +1944,7 @@ app.post(['/api/pdf/walk-in', '/api/fisio/pdf/walk-in'], requireAdmin, (req, res
   doc.end();
 });
 
-app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], requireAdmin, (req, res) => {
+app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], requireFisioOrAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) {
