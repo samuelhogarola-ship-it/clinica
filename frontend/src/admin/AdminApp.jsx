@@ -192,6 +192,7 @@ function AdminSectionNav({ currentSection, onChange }) {
     { id: 'finance', label: 'Facturas' },
     { id: 'patients', label: 'Pacientes' },
     { id: 'overview', label: 'Resumen' },
+    { id: 'config', label: 'Configuración' },
   ];
 
   return (
@@ -850,7 +851,7 @@ const DEMO_CLIENTS = [
   { id: 'CLI-1003', displayName: 'Menganito' },
 ];
 
-function VistaContabilidad({ overview }) {
+function VistaContabilidad({ overview, onConfigClick }) {
   const [financeSection, setFinanceSection] = useState('invoices');
   const paymentTotals = {
     cash: 0,
@@ -1078,7 +1079,7 @@ function VistaContabilidad({ overview }) {
               <div style={{ fontSize: 13, fontWeight: 500, color: '#2f5a9e', marginBottom: 2 }}>Personaliza tus facturas</div>
               <div style={{ fontSize: 12, color: '#4a72b0' }}>Aquí podrás cargar tu logo y personalizar el modelo de factura con tus datos fiscales.</div>
             </div>
-            <button style={{ ...s.btnSecondary, fontSize: 12, padding: '6px 14px', borderColor: '#c8dcf8', color: '#2f5a9e' }}>
+            <button style={{ ...s.btnSecondary, fontSize: 12, padding: '6px 14px', borderColor: '#c8dcf8', color: '#2f5a9e' }} onClick={onConfigClick}>
               Configurar
             </button>
           </div>
@@ -1856,6 +1857,110 @@ function VistaSubmissions({ currentUser }) {
   );
 }
 
+function ComingSoonBadge() {
+  return (
+    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 999, background: '#f0f6ff', color: '#4a72b0', border: '1px solid #c8dcf8', verticalAlign: 'middle', marginLeft: 8 }}>
+      En construcción
+    </span>
+  );
+}
+
+function ConfigOption({ icon, title, description, badge }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '18px 20px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', opacity: 0.65 }}>
+      <span style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--gray-900)', marginBottom: 3 }}>
+          {title}
+          {badge && <ComingSoonBadge />}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--gray-600)', lineHeight: 1.5 }}>{description}</div>
+      </div>
+    </div>
+  );
+}
+
+function VistaConfiguracion() {
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.02em', marginBottom: 6 }}>Configuración</h2>
+        <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>Personaliza cómo funciona la clínica en esta plataforma.</p>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>Identidad y facturación</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <ConfigOption
+            icon="🖼️"
+            title="Logo de la clínica"
+            description="Aparecerá en las cabeceras de las fichas y facturas en PDF."
+            badge
+          />
+          <ConfigOption
+            icon="🏢"
+            title="Datos fiscales"
+            description="NIF, razón social, dirección y datos de contacto para facturas."
+            badge
+          />
+          <ConfigOption
+            icon="📄"
+            title="Plantilla de factura"
+            description="Elige el formato y los campos que incluye cada factura generada."
+            badge
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>Acceso y usuarios</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <ConfigOption
+            icon="👥"
+            title="Gestión de usuarios"
+            description="Añade fisioterapeutas y administradores, cambia contraseñas y roles."
+            badge
+          />
+          <ConfigOption
+            icon="🔑"
+            title="Política de acceso"
+            description="Controla desde qué dispositivos y con qué sesiones se puede acceder."
+            badge
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>Integraciones</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <ConfigOption
+            icon="📅"
+            title="Calendario"
+            description="Conecta Google Calendar o iCal para sincronizar citas automáticamente."
+            badge
+          />
+          <ConfigOption
+            icon="💬"
+            title="Recordatorios a pacientes"
+            description="Envío automático de recordatorios por SMS o WhatsApp antes de cada cita."
+            badge
+          />
+          <ConfigOption
+            icon="☁️"
+            title="Copia de seguridad"
+            description="Exporta o sincroniza los datos de la clínica a una ubicación externa."
+            badge
+          />
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 18px', background: '#f9faf9', border: '1px dashed var(--border)', borderRadius: 'var(--radius)', fontSize: 13, color: 'var(--gray-600)', lineHeight: 1.6 }}>
+        ¿Hay algo que necesitas configurar y no aparece aquí? Escríbenos y lo añadimos.
+      </div>
+    </div>
+  );
+}
+
 export function AdminApp() {
   const [autenticado, setAutenticado] = useState(() => Boolean(getStoredToken(ADMIN_AUTH_SCOPE)));
   const [currentUser, setCurrentUser] = useState(() => getStoredUser(ADMIN_AUTH_SCOPE));
@@ -2021,7 +2126,8 @@ export function AdminApp() {
             )}
             {section === 'patients' && <VistaPacientes />}
             {section === 'intake' && <VistaSubmissions currentUser={currentUser} />}
-            {section === 'finance' && <VistaContabilidad overview={overview} />}
+            {section === 'config' && <VistaConfiguracion />}
+            {section === 'finance' && <VistaContabilidad overview={overview} onConfigClick={() => setSection('config')} />}
           </div>
         </main>
       </div>
