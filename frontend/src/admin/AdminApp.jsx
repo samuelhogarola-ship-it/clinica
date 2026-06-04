@@ -191,7 +191,6 @@ function AdminSectionNav({ currentSection, onChange }) {
   const items = [
     { id: 'finance', label: 'Facturas' },
     { id: 'patients', label: 'Pacientes' },
-    { id: 'intake', label: 'Solicitudes' },
     { id: 'overview', label: 'Resumen' },
   ];
 
