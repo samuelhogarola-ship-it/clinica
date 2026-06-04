@@ -189,10 +189,10 @@ function ModuleCard({ title, text, active, badge, onClick }) {
 
 function AdminSectionNav({ currentSection, onChange }) {
   const items = [
-    { id: 'overview', label: 'Resumen' },
+    { id: 'finance', label: 'Facturas' },
     { id: 'patients', label: 'Pacientes' },
     { id: 'intake', label: 'Solicitudes' },
-    { id: 'finance', label: 'Contabilidad' },
+    { id: 'overview', label: 'Resumen' },
   ];
 
   return (
@@ -846,7 +846,7 @@ function VistaPacientes() {
 }
 
 function VistaContabilidad({ overview }) {
-  const [financeSection, setFinanceSection] = useState('overview');
+  const [financeSection, setFinanceSection] = useState('invoices');
   const paymentTotals = {
     cash: 0,
     card: 0,
@@ -911,16 +911,24 @@ function VistaContabilidad({ overview }) {
   useEffect(() => {
     let cancelled = false;
 
+    const DEMO_CLIENTS = [
+      { id: 'CLI-1001', displayName: 'Pepito' },
+      { id: 'CLI-1002', displayName: 'Fulanita' },
+      { id: 'CLI-1003', displayName: 'Menganito' },
+    ];
+
     apiFetch('/pacientes', {}, ADMIN_API, ADMIN_AUTH_SCOPE)
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
       .then(({ ok, data }) => {
-        if (cancelled || !ok || !Array.isArray(data)) return;
-        setQuickClients(data.slice(0, 3));
+        if (cancelled) return;
+        const real = ok && Array.isArray(data) ? data.slice(0, 3) : [];
+        // Pad with demo clients so there are always at least 2 quick-access entries
+        const ids = new Set(real.map((c) => c.id));
+        const padded = [...real, ...DEMO_CLIENTS.filter((c) => !ids.has(c.id))].slice(0, 3);
+        setQuickClients(padded);
       })
       .catch(() => {
-        if (!cancelled) {
-          setQuickClients([]);
-        }
+        if (!cancelled) setQuickClients(DEMO_CLIENTS.slice(0, 3));
       });
 
     return () => {
@@ -1065,6 +1073,16 @@ function VistaContabilidad({ overview }) {
 
         {financeSection === 'invoices' && (
           <div style={{ ...s.card, marginTop: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', marginBottom: 20, background: '#f0f6ff', border: '1px solid #c8dcf8', borderRadius: 10 }}>
+            <span style={{ fontSize: 20 }}>🖼️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#2f5a9e', marginBottom: 2 }}>Personaliza tus facturas</div>
+              <div style={{ fontSize: 12, color: '#4a72b0' }}>Aquí podrás cargar tu logo y personalizar el modelo de factura con tus datos fiscales.</div>
+            </div>
+            <button style={{ ...s.btnSecondary, fontSize: 12, padding: '6px 14px', borderColor: '#c8dcf8', color: '#2f5a9e' }}>
+              Configurar
+            </button>
+          </div>
           <div style={s.cardHeader}>
             <span style={s.cardTitle}>Emitir factura</span>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -1125,7 +1143,7 @@ function VistaContabilidad({ overview }) {
                   onKeyDown={(event) => event.key === 'Enter' && loadClientRecords()}
                   placeholder="Ej: REG-100245"
                 />
-                <button style={s.btnPrimary} onClick={loadClientRecords} disabled={loadingClientRecords || !registryNumber.trim()}>
+                <button style={s.btnPrimary} onClick={() => loadClientRecords()} disabled={loadingClientRecords || !registryNumber.trim()}>
                   {loadingClientRecords ? 'Cargando...' : 'Cargar registros'}
                 </button>
               </div>
@@ -1844,7 +1862,7 @@ export function AdminApp() {
   const [currentUser, setCurrentUser] = useState(() => getStoredUser(ADMIN_AUTH_SCOPE));
   const [bootstrapping, setBootstrapping] = useState(() => !getStoredToken(ADMIN_AUTH_SCOPE));
   const [bootstrapError, setBootstrapError] = useState('');
-  const [section, setSection] = useState('overview');
+  const [section, setSection] = useState('finance');
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [overviewError, setOverviewError] = useState('');
