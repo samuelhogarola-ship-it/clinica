@@ -191,6 +191,7 @@ function AdminSectionNav({ currentSection, onChange }) {
   const items = [
     { id: 'overview', label: 'Resumen' },
     { id: 'patients', label: 'Pacientes' },
+    { id: 'intake', label: 'Solicitudes' },
     { id: 'finance', label: 'Contabilidad' },
   ];
 
@@ -1992,6 +1993,7 @@ export function AdminApp() {
               />
             )}
             {section === 'patients' && <VistaPacientes />}
+            {section === 'intake' && <VistaSubmissions currentUser={currentUser} />}
             {section === 'finance' && <VistaContabilidad overview={overview} />}
           </div>
         </main>

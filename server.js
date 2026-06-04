@@ -13,6 +13,7 @@ const app = express();
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -1277,6 +1278,14 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function requireAdmin(req, res, next) {
+  if (!req.currentUser || normalizeText(req.currentUser.role) !== 'admin') {
+    res.status(403).json({ error: 'Forbidden: admin role required.' });
+    return;
+  }
+  next();
+}
+
 migrateLegacyDataIfNeeded();
 seedSharedDemoDataIfNeeded();
 
@@ -1295,7 +1304,13 @@ app.post('/api/login', (req, res) => {
   res.json({ success: true, token, currentUser });
 });
 
+// Auto-session minting — only available when DEMO_MODE=true (never in production)
 app.post('/api/admin/session', (req, res) => {
+  if (!DEMO_MODE) {
+    res.status(403).json({ error: 'Auto-session not available in production.' });
+    return;
+  }
+
   const user = getDefaultAdminUser();
 
   if (!user) {
@@ -1310,6 +1325,11 @@ app.post('/api/admin/session', (req, res) => {
 });
 
 app.post('/api/fisio/session', (req, res) => {
+  if (!DEMO_MODE) {
+    res.status(403).json({ error: 'Auto-session not available in production.' });
+    return;
+  }
+
   const user = getDefaultFisioAccessUser();
 
   if (!user) {
@@ -1324,6 +1344,7 @@ app.post('/api/fisio/session', (req, res) => {
 });
 
 app.use('/api', (req, res, next) => {
+  // Auto-session paths are only reachable when DEMO_MODE is set; they 403 otherwise.
   if (req.path === '/login' || req.path === '/admin/session' || req.path === '/fisio/session') {
     next();
     return;
@@ -1331,6 +1352,10 @@ app.use('/api', (req, res, next) => {
 
   requireAuth(req, res, next);
 });
+
+// All /api/admin/* routes require the authenticated user to have role === 'admin'.
+// The two /api/admin/session and /api/fisio/session paths are handled before this middleware.
+app.use('/api/admin', requireAdmin);
 
 app.get(['/api/intake/submissions', '/api/admin/intake/submissions'], async (req, res) => {
   try {
