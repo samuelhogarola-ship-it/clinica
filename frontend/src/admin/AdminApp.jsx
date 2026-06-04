@@ -7,12 +7,14 @@ import {
   clearStoredAuth,
   formatFecha,
   formatFechaHora,
+  getRuntimeConfig,
   getStoredToken,
   getStoredUser,
   getSubmissionDisplayName,
   hydrateFichaCampos,
   storeAuth,
   s,
+  VistaLogin,
 } from '../internal/clinicShared.jsx';
 
 const ADMIN_API = '/api/admin';
@@ -1951,6 +1953,7 @@ export function AdminApp() {
   const [currentUser, setCurrentUser] = useState(() => getStoredUser(ADMIN_AUTH_SCOPE));
   const [bootstrapping, setBootstrapping] = useState(() => !getStoredToken(ADMIN_AUTH_SCOPE));
   const [bootstrapError, setBootstrapError] = useState('');
+  const [loginRequired, setLoginRequired] = useState(false);
   const [section, setSection] = useState('finance');
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
@@ -1958,6 +1961,7 @@ export function AdminApp() {
   useEffect(() => {
     if (autenticado) {
       setBootstrapping(false);
+      setLoginRequired(false);
       return;
     }
 
@@ -1966,12 +1970,33 @@ export function AdminApp() {
     const bootstrapSession = async () => {
       setBootstrapping(true);
       setBootstrapError('');
+      setLoginRequired(false);
 
       try {
+        let runtimeConfig = null;
+        try {
+          runtimeConfig = await getRuntimeConfig();
+        } catch {
+          runtimeConfig = null;
+        }
+
+        if (runtimeConfig && !runtimeConfig.demoMode) {
+          if (!cancelled) {
+            setLoginRequired(true);
+          }
+          return;
+        }
+
         const res = await fetch('/api/admin/session', { method: 'POST' });
         const data = await res.json();
 
         if (!res.ok || !data.success || !data.token || !data.currentUser) {
+          if (res.status === 403) {
+            if (!cancelled) {
+              setLoginRequired(true);
+            }
+            return;
+          }
           throw new Error(data.error || 'No se pudo abrir el panel admin.');
         }
 
@@ -2042,11 +2067,25 @@ export function AdminApp() {
   };
 
   if (!autenticado) {
+    if (loginRequired && !bootstrapping && !bootstrapError) {
+      return (
+        <VistaLogin
+          authScope={ADMIN_AUTH_SCOPE}
+          onLoginCorrecto={(user) => {
+            setCurrentUser(user);
+            setAutenticado(true);
+          }}
+          title="Abrir panel administrador"
+          text="Acceso real para administración de la clínica."
+        />
+      );
+    }
+
     return (
       <div style={s.authShell}>
         <div style={s.authCard}>
           <div style={s.authLogo} />
-          <h1 style={s.authTitle}>Abriendo Panel Admin</h1>
+          <h1 style={s.authTitle}>Abrir panel administrador</h1>
           <p style={s.authText}>
             Acceso directo al panel administrador de clínica.
           </p>
@@ -2074,7 +2113,9 @@ export function AdminApp() {
       <header style={adminShell.topbar}>
         <div style={adminShell.topbarBrand}>
           <span>Clínica</span>
-          <span style={adminShell.topbarMeta}>demo · administrador</span>
+          <span style={adminShell.topbarMeta}>
+            {currentUser?.isDemo ? 'demo · administrador' : 'panel administrador'}
+          </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <a href="/fisio" style={{ color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
@@ -2097,7 +2138,7 @@ export function AdminApp() {
 
           <div style={adminShell.sidebarFooter}>
             <button style={{ ...s.btnSecondary, justifyContent: 'center' }} onClick={cerrarSesion}>
-              Reiniciar acceso
+              {currentUser?.isDemo ? 'Reiniciar demo' : 'Cerrar sesión'}
             </button>
           </div>
         </aside>

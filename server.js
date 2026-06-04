@@ -1461,9 +1461,25 @@ app.post('/api/fisio/session', (req, res) => {
   res.json({ success: true, token, currentUser });
 });
 
+app.get('/api/runtime-config', (_req, res) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+  res.json({
+    demoMode: DEMO_MODE,
+  });
+});
+
 app.use('/api', (req, res, next) => {
   // Auto-session paths are only reachable when DEMO_MODE is set; they 403 otherwise.
-  if (req.path === '/login' || req.path === '/admin/session' || req.path === '/fisio/session') {
+  if (
+    req.path === '/login'
+    || req.path === '/admin/session'
+    || req.path === '/fisio/session'
+    || req.path === '/runtime-config'
+  ) {
     next();
     return;
   }

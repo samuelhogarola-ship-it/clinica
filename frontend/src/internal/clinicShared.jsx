@@ -60,6 +60,25 @@ export async function apiFetch(path, options = {}, apiBase = '/api', scope = 'in
   return response;
 }
 
+export async function getRuntimeConfig() {
+  const res = await fetch('/api/runtime-config');
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'No se pudo comprobar el modo de la app.');
+  }
+
+  return {
+    demoMode: Boolean(data?.demoMode),
+  };
+}
+
 export const fechaHoy = () => new Date().toISOString().split('T')[0];
 
 export const formatFecha = (iso) => iso.split('-').reverse().join('/');

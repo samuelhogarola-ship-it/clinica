@@ -74,9 +74,10 @@ La raíz del proyecto sirve el frontend compilado como una sola app Node.
 
 1. Conecta este repo de GitHub en Render.
 2. Render detectará `render.yaml`.
-3. Añade `OPENAI_API_KEY` como variable de entorno.
-4. Añade también `APP_PASSWORD`.
-5. Si quieres persistencia real de datos en producción, monta un disco y apunta `DATA_DIR` a esa ruta.
+3. La demo pública debe ir con `DEMO_MODE=true`.
+4. Añade `APP_PASSWORD` si también quieres permitir login manual interno.
+5. Añade `OPENAI_API_KEY` solo si necesitas transcripción.
+6. Si quieres persistencia real de datos en producción, monta un disco y apunta `DATA_DIR` a esa ruta.
 
 ### Qué hace el despliegue
 
@@ -131,6 +132,49 @@ En local, los datos se guardan en `backend/datos/`. En una preview remota sin di
   - se descarga en el dispositivo que lo solicita
   - y además se guarda una copia en el servidor por ahora
 - Esto permite trabajar desde móvil, tablet o PC viendo la misma base de pacientes sin depender de carpetas locales del equipo del usuario.
+
+## Demo pública vs producción real
+
+La misma base de código soporta los dos escenarios. La diferencia debe venir por entorno, no por rehacer pantallas:
+
+- Render: demo comercial pública
+  - `DEMO_MODE=true`
+  - `/admin` y `/fisio` crean sesión demo automáticamente
+  - se muestran datos demo
+  - sirve como escaparate comercial para `webfuengirola.com/portfolio/demo.html`
+- Hostinger: producción real
+  - `DEMO_MODE=false` o sin definir
+  - `/admin` y `/fisio` no crean sesión automática
+  - se muestra login real
+  - se mantienen datos y configuración reales
+
+### Variables que cambian entre entornos
+
+Demo en Render:
+
+```bash
+DEMO_MODE=true
+APP_PASSWORD=...
+DATA_DIR=...
+OPENAI_API_KEY=...
+```
+
+Producción en Hostinger:
+
+```bash
+DEMO_MODE=false
+APP_PASSWORD=...
+DATA_DIR=...
+OPENAI_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Notas:
+
+- `APP_PASSWORD` sigue siendo la contraseña compartida del login real.
+- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` solo son necesarias cuando quieres bandeja y datos reales conectados.
+- Si Hostinger no define `DEMO_MODE`, el comportamiento ya es de producción real.
 
 ## Autenticación básica
 
