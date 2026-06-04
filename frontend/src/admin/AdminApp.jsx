@@ -1940,12 +1940,6 @@ function VistaConfiguracion() {
             badge
           />
           <ConfigOption
-            icon="💬"
-            title="Recordatorios a pacientes"
-            description="Envío automático de recordatorios por SMS o WhatsApp antes de cada cita."
-            badge
-          />
-          <ConfigOption
             icon="☁️"
             title="Copia de seguridad"
             description="Exporta o sincroniza los datos de la clínica a una ubicación externa."
