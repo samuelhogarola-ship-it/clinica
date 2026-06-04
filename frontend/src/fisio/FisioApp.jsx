@@ -885,7 +885,7 @@ export function FisioApp() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <a href="/admin" style={{ ...s.btnSecondary, textDecoration: 'none' }}>Ir a admin</a>
           <span style={{ fontSize: 12, color: 'var(--gray-600)', fontFamily: 'var(--font-mono)' }}>
-            {currentUser?.displayName || 'acceso protegido'}
+            {currentUser?.isDemo ? 'Admin' : (currentUser?.displayName || 'acceso protegido')}
           </span>
           <button style={s.btnSecondary} onClick={cerrarSesion}>
             Cerrar sesión
