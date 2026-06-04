@@ -37,17 +37,26 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
   useEffect(() => {
     let cancelled = false;
 
+    const DEMO_PATIENTS = [
+      { id: 'CLI-1001', displayName: 'Pepito', fechaNacimiento: '1990-04-12', sesiones: ['2026-06-02', '2026-05-21', '2026-05-10'] },
+      { id: 'CLI-1002', displayName: 'Fulanita', fechaNacimiento: '1988-09-03', sesiones: ['2026-05-30', '2026-05-16', '2026-05-02'] },
+      { id: 'CLI-1003', displayName: 'Menganito', fechaNacimiento: '1995-01-24', sesiones: ['2026-06-01', '2026-05-20', '2026-05-08'] },
+    ];
+
     const cargarPacientes = async () => {
       setCargandoPacientes(true);
       try {
         const res = await apiFetch('/pacientes', {}, FISIO_API, FISIO_AUTH_SCOPE);
         const data = await res.json();
         if (!cancelled) {
-          setPacientes(Array.isArray(data) ? data : []);
+          const real = Array.isArray(data) ? data : [];
+          const ids = new Set(real.map((p) => p.id));
+          const padded = [...real, ...DEMO_PATIENTS.filter((p) => !ids.has(p.id))];
+          setPacientes(padded);
         }
       } catch {
         if (!cancelled) {
-          setPacientes([]);
+          setPacientes(DEMO_PATIENTS);
         }
       } finally {
         if (!cancelled) {
@@ -95,6 +104,15 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
           Trabajo clínico diario sobre pacientes, sesiones y PDFs.
         </p>
       </div>
+
+      {isDemo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', marginBottom: 20, background: '#fff8ec', border: '1px solid #f0d080', borderRadius: 10 }}>
+          <span style={{ fontSize: 16 }}>🔒</span>
+          <span style={{ fontSize: 13, color: '#7a5a00' }}>
+            Solo accesible para autorizados con inicio de sesión propio. Estás en modo demo.
+          </span>
+        </div>
+      )}
 
       <div style={s.card}>
         <div style={s.cardHeader}>
@@ -471,30 +489,21 @@ function VistaFicha({ pacienteId, onVolver, isDemo }) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {isDemo && (
-            <span style={{ fontSize: 12, color: 'var(--gray-600)', fontStyle: 'italic' }}>modo demo</span>
-          )}
-          {!isDemo && !editable && sesionActiva !== 'nueva' && (
-            <button style={s.btnSecondary} onClick={() => setEditable(true)}>
+          {!editable && sesionActiva !== 'nueva' && (
+            <button style={{ ...s.btnSecondary, ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={isDemo ? undefined : () => setEditable(true)} disabled={isDemo}>
               Editar
             </button>
           )}
-          {!isDemo && editable && sesionActiva !== 'nueva' && (
+          {editable && sesionActiva !== 'nueva' && !isDemo && (
             <>
-              <button style={s.btnSecondary} onClick={cancelarEdicion}>
-                Cancelar
-              </button>
-              <button style={s.btnPrimary} onClick={guardarSesionActual}>
-                Guardar
-              </button>
+              <button style={s.btnSecondary} onClick={cancelarEdicion}>Cancelar</button>
+              <button style={s.btnPrimary} onClick={guardarSesionActual}>Guardar</button>
             </>
           )}
-          {!isDemo && (
-            <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
-              <IconPDF size={15} />
-              {generandoPDF ? 'Generando...' : 'Generar PDF'}
-            </button>
-          )}
+          <button style={{ ...s.btnPrimary, ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={isDemo ? undefined : generarPDF} disabled={isDemo || generandoPDF}>
+            <IconPDF size={15} />
+            {generandoPDF ? 'Generando...' : 'Generar PDF'}
+          </button>
         </div>
       </div>
 
@@ -509,30 +518,22 @@ function VistaFicha({ pacienteId, onVolver, isDemo }) {
               style={s.select}
               value={sesionActiva === 'nueva' ? '' : (sesionActiva || '')}
               onChange={(e) => {
-                if (e.target.value) {
-                  cargarSesion(e.target.value);
-                }
+                if (e.target.value) cargarSesion(e.target.value);
               }}
             >
               <option value="">Selecciona una sesión</option>
               {sesiones.map((fecha) => (
-                <option key={fecha} value={fecha}>
-                  {formatFecha(fecha)}
-                </option>
+                <option key={fecha} value={fecha}>{formatFecha(fecha)}</option>
               ))}
             </select>
           </div>
-          {!isDemo && (
-            <button
-              onClick={nuevaSesion}
-              style={{
-                ...s.btnPrimary,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <IconPlus size={13} /> Nueva sesión
-            </button>
-          )}
+          <button
+            onClick={isDemo ? undefined : nuevaSesion}
+            disabled={isDemo}
+            style={{ ...s.btnPrimary, whiteSpace: 'nowrap', ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
+          >
+            <IconPlus size={13} /> Nueva sesión
+          </button>
         </div>
       </div>
 
