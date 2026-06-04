@@ -10,6 +10,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
+        fisio: path.resolve(__dirname, 'fisio/index.html'),
+        admin: path.resolve(__dirname, 'admin/index.html'),
         registro: path.resolve(__dirname, 'registro.html'),
       },
     },

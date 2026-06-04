@@ -1,0 +1,131 @@
+{
+  "patients": [
+    {
+      "code": "CLI-1001",
+      "birthDate": "1990-04-12",
+      "sessions": [
+        {
+          "date": "2026-06-02",
+          "data": {
+            "nombre": "Pepito",
+            "apellidos": "",
+            "edad": "36",
+            "sexo": "Masculino",
+            "profesion": "Administrativo",
+            "alturaPeso": "178 cm / 79 kg",
+            "diagnosticoMedico": "Sobrecarga lumbar leve",
+            "fechaInicialAnomalia": "2026-05-28",
+            "tratamientosAfines": "Calor local y reposo relativo",
+            "medicacion": "Ibuprofeno ocasional",
+            "pruebaImagen": "Sin prueba de imagen",
+            "historiaClinica": "Dolor lumbar mecanico tras varios dias de carga fisica y sedestacion prolongada.",
+            "anamnesis": "Refiere rigidez matinal ligera y molestias al final de la jornada laboral.",
+            "antecedentesALAV": "Sin antecedentes relevantes",
+            "antecedentesAQ": "Ninguno",
+            "inspeccionObservacion": "Leve hipertonía lumbar baja y gesto protector al incorporarse.",
+            "palpacionDiagnostica": "Dolor a la palpación paravertebral izquierda.",
+            "sensibilidad": "Conservada",
+            "pgs": "Negativo",
+            "balanceMuscular": "Ligera debilidad glútea izquierda",
+            "balanceArticular": "Flexión lumbar limitada al final del rango",
+            "datosInteres": "Trabajo sedentario con picos de carga física",
+            "valoracionFuncional": "Tolera marcha y bipedestación. Molestia al agacharse.",
+            "pruebasEspecificas": "SLR negativo, pruebas neurodinámicas sin hallazgos",
+            "problemasFisioterapeuticos": "Dolor lumbar y rigidez mecánica",
+            "programaFisioterapia": "Descarga lumbar, movilidad y control lumbopélvico",
+            "planTratamiento": "Movilidad suave, descarga lumbar y pauta domiciliaria",
+            "recomendacionesFamilia": "Favorecer pausas activas y ergonomía básica",
+            "objetivosFisioterapeuticos": "Reducir dolor y recuperar movilidad funcional",
+            "evolucionExploracionTratamiento": "Mejora parcial tras la sesión. Sin signos de alarma."
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "data": {
+            "nombre": "Pepito",
+            "diagnosticoMedico": "Revisión de seguimiento lumbar",
+            "historiaClinica": "Seguimiento del episodio lumbar mecánico.",
+            "anamnesis": "Dolor más controlado, persiste cansancio local.",
+            "planTratamiento": "Sesión de seguimiento y refuerzo de ejercicios.",
+            "evolucionExploracionTratamiento": "Buena respuesta. Se mantiene control semanal."
+          }
+        },
+        {
+          "date": "2026-05-10",
+          "data": {
+            "nombre": "Pepito",
+            "diagnosticoMedico": "Valoración inicial lumbar",
+            "historiaClinica": "Primera consulta por dolor lumbar de esfuerzo.",
+            "anamnesis": "Dolor tras carga y flexión repetida.",
+            "planTratamiento": "Valoración inicial y descarga básica.",
+            "evolucionExploracionTratamiento": "Se planifica seguimiento."
+          }
+        }
+      ]
+    },
+    {
+      "code": "CLI-1002",
+      "birthDate": "1988-09-03",
+      "sessions": [
+        {
+          "date": "2026-05-30",
+          "data": {
+            "nombre": "Fulanita",
+            "apellidos": "",
+            "edad": "37",
+            "sexo": "Femenino",
+            "profesion": "Docente",
+            "diagnosticoMedico": "Valoración inicial de hombro",
+            "historiaClinica": "Primera consulta por limitación funcional leve en hombro derecho.",
+            "anamnesis": "Molestia en elevación y carga mantenida.",
+            "planTratamiento": "Valoración inicial, movilidad guiada y recomendación básica.",
+            "evolucionExploracionTratamiento": "Caso en observación, pendiente de siguiente sesión."
+          }
+        },
+        {
+          "date": "2026-05-16",
+          "data": {
+            "nombre": "Fulanita",
+            "diagnosticoMedico": "Seguimiento de hombro",
+            "historiaClinica": "Persistencia de molestias moderadas.",
+            "anamnesis": "Mejor tolerancia funcional, aún dolor en elevación final.",
+            "planTratamiento": "Movilidad activa y descarga de tejidos blandos.",
+            "evolucionExploracionTratamiento": "Ligera mejoría global."
+          }
+        }
+      ]
+    },
+    {
+      "code": "CLI-1003",
+      "birthDate": "1995-01-24",
+      "sessions": [
+        {
+          "date": "2026-06-01",
+          "data": {
+            "nombre": "Menganito",
+            "apellidos": "",
+            "edad": "31",
+            "sexo": "Masculino",
+            "profesion": "Técnico de mantenimiento",
+            "diagnosticoMedico": "Cervicalgia mecánica",
+            "historiaClinica": "Consulta por tensión cervical asociada a trabajo repetitivo.",
+            "anamnesis": "Rigidez cervical y cefalea leve tensional al final del día.",
+            "planTratamiento": "Movilidad cervical, descarga y higiene postural.",
+            "evolucionExploracionTratamiento": "Pendiente de seguimiento a corto plazo."
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "data": {
+            "nombre": "Menganito",
+            "diagnosticoMedico": "Primera valoración cervical",
+            "historiaClinica": "Inicio de dolor cervical no traumático.",
+            "anamnesis": "Molestia progresiva de varias semanas.",
+            "planTratamiento": "Valoración y recomendaciones iniciales.",
+            "evolucionExploracionTratamiento": "Se pauta control evolutivo."
+          }
+        }
+      ]
+    }
+  ]
+}
