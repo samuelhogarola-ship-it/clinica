@@ -194,35 +194,46 @@ function AdminSectionNav({ currentSection, onChange }) {
     { id: 'finance', label: 'Facturas' },
     { id: 'patients', label: 'Pacientes' },
     { id: 'overview', label: 'Resumen' },
+    { id: 'fisio', label: 'App Fisio', href: '/fisio' },
     { id: 'config', label: 'Configuración' },
   ];
 
   return (
     <div style={adminShell.sidebarNav}>
       {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          style={adminShell.sidebarItem(currentSection === item.id)}
-          onClick={() => onChange(item.id)}
-        >
-          <span>{item.label}</span>
-          {item.badge ? (
-            <span style={{
-              minWidth: 24,
-              padding: '2px 8px',
-              borderRadius: 999,
-              background: currentSection === item.id ? 'rgba(255,255,255,0.18)' : '#e8eff8',
-              color: currentSection === item.id ? '#fff' : '#4a86e8',
-              fontSize: 12,
-              fontWeight: 700,
-              textAlign: 'center',
-            }}
-            >
-              {item.badge}
-            </span>
-          ) : null}
-        </button>
+        item.href ? (
+          <a
+            key={item.id}
+            href={item.href}
+            style={{ ...adminShell.sidebarItem(false), textDecoration: 'none' }}
+          >
+            <span>{item.label}</span>
+          </a>
+        ) : (
+          <button
+            key={item.id}
+            type="button"
+            style={adminShell.sidebarItem(currentSection === item.id)}
+            onClick={() => onChange(item.id)}
+          >
+            <span>{item.label}</span>
+            {item.badge ? (
+              <span style={{
+                minWidth: 24,
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: currentSection === item.id ? 'rgba(255,255,255,0.18)' : '#e8eff8',
+                color: currentSection === item.id ? '#fff' : '#4a86e8',
+                fontSize: 12,
+                fontWeight: 700,
+                textAlign: 'center',
+              }}
+              >
+                {item.badge}
+              </span>
+            ) : null}
+          </button>
+        )
       ))}
     </div>
   );
@@ -273,7 +284,7 @@ function VistaResumen({ currentUser }) {
     saveAdminTasks(tasks);
   }, [tasks]);
 
-  const firstName = (currentUser?.displayName || 'Susana').split(' ')[0];
+  const firstName = currentUser?.isDemo ? 'Admin' : (currentUser?.displayName || 'Admin').split(' ')[0];
   const todayLabel = new Intl.DateTimeFormat('es-ES', {
     weekday: 'long',
     day: 'numeric',
@@ -1954,6 +1965,7 @@ export function AdminApp() {
   const [bootstrapping, setBootstrapping] = useState(() => !getStoredToken(ADMIN_AUTH_SCOPE));
   const [bootstrapError, setBootstrapError] = useState('');
   const [loginRequired, setLoginRequired] = useState(false);
+  const [demoAccessMode, setDemoAccessMode] = useState(false);
   const [section, setSection] = useState('finance');
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
@@ -1962,6 +1974,7 @@ export function AdminApp() {
     if (autenticado) {
       setBootstrapping(false);
       setLoginRequired(false);
+      setDemoAccessMode(false);
       return;
     }
 
@@ -1971,6 +1984,7 @@ export function AdminApp() {
       setBootstrapping(true);
       setBootstrapError('');
       setLoginRequired(false);
+      setDemoAccessMode(false);
 
       try {
         let runtimeConfig = null;
@@ -1986,24 +2000,9 @@ export function AdminApp() {
           }
           return;
         }
-
-        const res = await fetch('/api/admin/session', { method: 'POST' });
-        const data = await res.json();
-
-        if (!res.ok || !data.success || !data.token || !data.currentUser) {
-          if (res.status === 403) {
-            if (!cancelled) {
-              setLoginRequired(true);
-            }
-            return;
-          }
-          throw new Error(data.error || 'No se pudo abrir el panel admin.');
+        if (!cancelled) {
+          setDemoAccessMode(true);
         }
-
-        if (cancelled) return;
-        storeAuth(data.token, data.currentUser, ADMIN_AUTH_SCOPE);
-        setCurrentUser(data.currentUser);
-        setAutenticado(true);
       } catch (error) {
         if (cancelled) return;
         setBootstrapError(error.message || 'No se pudo abrir el panel admin.');
@@ -2066,6 +2065,33 @@ export function AdminApp() {
     setCurrentUser(null);
   };
 
+  const accederDemo = async () => {
+    setBootstrapping(true);
+    setBootstrapError('');
+
+    try {
+      const res = await fetch('/api/admin/session', { method: 'POST' });
+      const data = await res.json();
+
+      if (!res.ok || !data.success || !data.token || !data.currentUser) {
+        if (res.status === 403) {
+          setLoginRequired(true);
+          setDemoAccessMode(false);
+          return;
+        }
+        throw new Error(data.error || 'No se pudo abrir el panel admin.');
+      }
+
+      storeAuth(data.token, data.currentUser, ADMIN_AUTH_SCOPE);
+      setCurrentUser(data.currentUser);
+      setAutenticado(true);
+    } catch (error) {
+      setBootstrapError(error.message || 'No se pudo abrir el panel admin.');
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+
   if (!autenticado) {
     if (loginRequired && !bootstrapping && !bootstrapError) {
       return (
@@ -2082,26 +2108,79 @@ export function AdminApp() {
     }
 
     return (
-      <div style={s.authShell}>
+      <div style={{ ...s.authShell, flexDirection: 'column', gap: 22 }}>
+        <div style={{ display: 'grid', justifyItems: 'center', gap: 12, textAlign: 'center' }}>
+          <img
+            src="https://webfuengirola.com/img/logo-wf.webp"
+            alt="Web Fuengirola Studio"
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 18,
+              boxShadow: '0 18px 35px rgba(20, 20, 20, 0.16)',
+            }}
+          />
+          <div style={{
+            fontSize: 34,
+            fontWeight: 700,
+            letterSpacing: '-0.05em',
+            color: '#1f2937',
+            lineHeight: 1,
+          }}
+          >
+            Web Fuengirola Studio
+          </div>
+          <div style={{
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: '#11a59a',
+          }}
+          >
+            DEMO COMERCIAL
+          </div>
+        </div>
         <div style={s.authCard}>
           <div style={s.authLogo} />
-          <h1 style={s.authTitle}>Abrir panel administrador</h1>
+          <h1 style={s.authTitle}>Acceso al panel DEMO</h1>
           <p style={s.authText}>
-            Acceso directo al panel administrador de clínica.
+            Accede a tu panel DEMO para administrar tu cl&iacute;nica.
           </p>
+          {demoAccessMode ? (
+            <>
+              <label style={s.label}>Usuario</label>
+              <input
+                style={{ ...s.input, marginBottom: 14 }}
+                type="text"
+                value="admin"
+                readOnly
+              />
+
+              <label style={s.label}>Contraseña</label>
+              <input
+                style={s.input}
+                type="password"
+                value="2026*"
+                readOnly
+              />
+            </>
+          ) : null}
           {bootstrapError ? (
             <>
               <p style={s.authError}>{bootstrapError}</p>
               <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
-                <button style={s.btnPrimary} onClick={() => window.location.reload()}>
+                <button style={s.btnPrimary} onClick={demoAccessMode ? accederDemo : (() => window.location.reload())}>
                   Reintentar
                 </button>
               </div>
             </>
           ) : (
-            <p style={{ fontSize: 14, color: 'var(--gray-600)' }}>
-              {bootstrapping ? 'Preparando acceso...' : 'Entrando al panel...'}
-            </p>
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
+              <button style={s.btnPrimary} onClick={accederDemo} disabled={bootstrapping || !demoAccessMode}>
+                {bootstrapping ? 'Verificando...' : 'Acceder'}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -2118,10 +2197,7 @@ export function AdminApp() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <a href="/fisio" style={{ color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
-            Ir a fisio
-          </a>
-          <span style={adminShell.topbarMeta}>{currentUser?.displayName || 'acceso directo'}</span>
+          <span style={adminShell.topbarMeta}>{currentUser?.isDemo ? 'Admin' : (currentUser?.displayName || 'acceso directo')}</span>
         </div>
       </header>
 
