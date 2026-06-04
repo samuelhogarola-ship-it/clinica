@@ -13,6 +13,7 @@ import {
   debounce,
   fechaHoy,
   formatFecha,
+  getRuntimeConfig,
   getStoredToken,
   getStoredUser,
   hydrateFichaCampos,
@@ -21,6 +22,7 @@ import {
   s,
   sesionEsEditablePorDefecto,
   storeAuth,
+  VistaLogin,
 } from '../internal/clinicShared.jsx';
 
 const FISIO_API = '/api/fisio';
@@ -751,12 +753,14 @@ export function FisioApp() {
   const [currentUser, setCurrentUser] = useState(() => getStoredUser(FISIO_AUTH_SCOPE));
   const [bootstrapping, setBootstrapping] = useState(() => !getStoredToken(FISIO_AUTH_SCOPE));
   const [bootstrapError, setBootstrapError] = useState('');
+  const [loginRequired, setLoginRequired] = useState(false);
   const [vista, setVista] = useState('buscar');
   const [pacienteActivo, setPacienteActivo] = useState(null);
 
   useEffect(() => {
     if (autenticado) {
       setBootstrapping(false);
+      setLoginRequired(false);
       return;
     }
 
@@ -765,8 +769,18 @@ export function FisioApp() {
     const bootstrapSession = async () => {
       setBootstrapping(true);
       setBootstrapError('');
+      setLoginRequired(false);
 
       try {
+        const runtimeConfig = await getRuntimeConfig();
+
+        if (!runtimeConfig.demoMode) {
+          if (!cancelled) {
+            setLoginRequired(true);
+          }
+          return;
+        }
+
         const res = await fetch('/api/fisio/session', { method: 'POST' });
         const data = await res.json();
 
@@ -809,11 +823,25 @@ export function FisioApp() {
   };
 
   if (!autenticado) {
+    if (loginRequired && !bootstrapping && !bootstrapError) {
+      return (
+        <VistaLogin
+          authScope={FISIO_AUTH_SCOPE}
+          onLoginCorrecto={(user) => {
+            setCurrentUser(user);
+            setAutenticado(true);
+          }}
+          title="Abrir app fisio"
+          text="Acceso real para sesiones, pacientes y trabajo clínico."
+        />
+      );
+    }
+
     return (
       <div style={s.authShell}>
         <div style={s.authCard}>
           <div style={s.authLogo} />
-          <h1 style={s.authTitle}>Abriendo App Fisio</h1>
+          <h1 style={s.authTitle}>Abrir app fisio</h1>
           <p style={s.authText}>
             Acceso directo temporal a la aplicación clínica de sesiones y pacientes.
           </p>

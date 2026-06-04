@@ -27,6 +27,7 @@ npm start
 Configura en Hostinger:
 
 - `APP_PASSWORD`
+- `DEMO_MODE=false` o no definirla
 - `OPENAI_API_KEY` si quieres transcripcion
 
 Opcional:
@@ -34,6 +35,8 @@ Opcional:
 - `PORT`
 - `HOST`
 - `DATA_DIR`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Qué sirve esta app
 
@@ -54,3 +57,12 @@ npm run build
 ```
 
 Eso regenera `public/`, que es la carpeta que sirve Hostinger.
+
+## Comportamiento esperado en producción real
+
+Con `DEMO_MODE=false` o sin esa variable:
+
+- `/admin` no abre sesión demo automáticamente
+- `/fisio` no abre sesión demo automáticamente
+- ambos muestran login real
+- los datos y la configuración permanecen en el entorno real
