@@ -1930,26 +1930,8 @@ function VistaConfiguracion() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>Integraciones</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <ConfigOption
-            icon="📅"
-            title="Calendario"
-            description="Conecta Google Calendar o iCal para sincronizar citas automáticamente."
-            badge
-          />
-          <ConfigOption
-            icon="☁️"
-            title="Copia de seguridad"
-            description="Exporta o sincroniza los datos de la clínica a una ubicación externa."
-            badge
-          />
-        </div>
-      </div>
-
       <div style={{ padding: '14px 18px', background: '#f9faf9', border: '1px dashed var(--border)', borderRadius: 'var(--radius)', fontSize: 13, color: 'var(--gray-600)', lineHeight: 1.6 }}>
-        ¿Hay algo que necesitas configurar y no aparece aquí? Escríbenos y lo añadimos.
+        Más opciones próximamente.
       </div>
     </div>
   );
