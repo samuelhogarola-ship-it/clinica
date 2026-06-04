@@ -13,6 +13,7 @@ const app = express();
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -40,6 +41,9 @@ const PATIENT_CODE_INDEX_PATH = path.join(META_DIR, 'patient-code-index.json');
 const PATIENT_SESSIONS_INDEX_PATH = path.join(META_DIR, 'patient-sessions-index.json');
 const COUNTERS_PATH = path.join(META_DIR, 'counters.json');
 const DEMO_SEED_PATH = path.join(__dirname, 'backend', 'demo-seed.json');
+const AUDIT_LOG_PATH = path.join(META_DIR, 'audit-log.json');
+const WALKIN_DIR = path.join(DATA_DIR, 'walkin-records');
+const WALKIN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const authTokens = new Map();
 
 function ensureDir(dirPath) {
@@ -62,12 +66,14 @@ function ensureDataBootstrap() {
     PACIENTES_DIR,
     SESSION_RECORDS_DIR,
     META_DIR,
+    WALKIN_DIR,
   ].forEach(ensureDir);
 
   ensureJsonFile(INDICE_PATH, {});
   ensureJsonFile(PATIENT_CODE_INDEX_PATH, {});
   ensureJsonFile(PATIENT_SESSIONS_INDEX_PATH, {});
   ensureJsonFile(COUNTERS_PATH, { patient: 0, session: 0 });
+  ensureJsonFile(AUDIT_LOG_PATH, []);
 }
 
 ensureDataBootstrap();
@@ -999,6 +1005,79 @@ function updatePatientRecord(patientRecord) {
   writeLegacyIndexSnapshot();
 }
 
+// ─── Audit log ───────────────────────────────────────────────────────────────
+
+function appendAuditEntry(entry) {
+  const log = readJsonFile(AUDIT_LOG_PATH, []);
+  log.push({ ...entry, timestamp: new Date().toISOString() });
+  writeJsonFile(AUDIT_LOG_PATH, log);
+}
+
+function auditFisioWrite({ action, patientId, tempRecordId, sessionDate, actor, changedFields }) {
+  appendAuditEntry({
+    id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    action,
+    patientId: patientId || null,
+    tempRecordId: tempRecordId || null,
+    sessionDate: sessionDate || null,
+    actorId: actor?.id || '',
+    actorRole: actor?.role || '',
+    changedFields: changedFields || [],
+  });
+}
+
+function readAuditLog() {
+  return readJsonFile(AUDIT_LOG_PATH, []);
+}
+
+// ─── Walk-in temporary records ───────────────────────────────────────────────
+
+function walkinRecordPath(tempId) {
+  return path.join(WALKIN_DIR, `${tempId}.json`);
+}
+
+function createWalkinRecord({ ficha, actor }) {
+  const nowIso = new Date().toISOString();
+  const tempId = `WALK-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const record = {
+    id: tempId,
+    status: 'pending_review',
+    ficha,
+    createdAt: nowIso,
+    expiresAt: new Date(Date.now() + WALKIN_TTL_MS).toISOString(),
+    createdBy: actor?.id || '',
+    createdByRole: actor?.role || '',
+    convertedTo: null,
+    discardedAt: null,
+  };
+  writeJsonFile(walkinRecordPath(tempId), record);
+  auditFisioWrite({ action: 'walkin_create', tempRecordId: tempId, actor, changedFields: Object.keys(ficha) });
+  return record;
+}
+
+function listWalkinRecords({ includeExpired = false } = {}) {
+  if (!fs.existsSync(WALKIN_DIR)) return [];
+  const now = new Date();
+  return fs.readdirSync(WALKIN_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => readJsonFile(path.join(WALKIN_DIR, f), null))
+    .filter(Boolean)
+    .filter((r) => includeExpired || new Date(r.expiresAt) > now)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function getWalkinRecord(tempId) {
+  return readJsonFile(walkinRecordPath(tempId), null);
+}
+
+function updateWalkinRecord(record) {
+  writeJsonFile(walkinRecordPath(record.id), record);
+}
+
+function isWalkinExpired(record) {
+  return new Date(record.expiresAt) <= new Date();
+}
+
 function persistSessionRecord({ patientRecord, fecha, data, currentUser }) {
   const patientSessionsIndex = loadPatientSessionsIndex();
   patientSessionsIndex[patientRecord.id] = patientSessionsIndex[patientRecord.id] || {};
@@ -1026,6 +1105,18 @@ function persistSessionRecord({ patientRecord, fecha, data, currentUser }) {
   writeJsonFile(sessionRecordPath(sessionId), sessionRecord);
   patientSessionsIndex[patientRecord.id][fecha] = sessionId;
   savePatientSessionsIndex(patientSessionsIndex);
+
+  const action = existingSession ? 'session_update' : 'session_create';
+  const changedFields = existingSession
+    ? Object.keys(data).filter((k) => data[k] !== existingSession[k])
+    : Object.keys(data);
+  auditFisioWrite({
+    action,
+    patientId: patientRecord.id,
+    sessionDate: fecha,
+    actor: currentUser,
+    changedFields,
+  });
 
   const patientUpdated = {
     ...patientRecord,
@@ -1277,6 +1368,42 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Requires a real (non-demo) authenticated admin.
+function requireAdmin(req, res, next) {
+  if (!req.currentUser || normalizeText(req.currentUser.role) !== 'admin') {
+    res.status(403).json({ error: 'Forbidden: admin role required.' });
+    return;
+  }
+  if (req.currentUser.isDemo) {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
+    return;
+  }
+  next();
+}
+
+// Requires a real (non-demo) user with admin or fisio role.
+function requireFisioOrAdmin(req, res, next) {
+  const role = normalizeText(req.currentUser?.role || '');
+  if (role !== 'admin' && role !== 'fisio') {
+    res.status(403).json({ error: 'Forbidden: admin or fisio role required.' });
+    return;
+  }
+  if (req.currentUser.isDemo) {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
+    return;
+  }
+  next();
+}
+
+// Blocks any write (non-GET/HEAD) request from a demo session.
+function denyDemoWrites(req, res, next) {
+  if (req.currentUser?.isDemo && req.method !== 'GET' && req.method !== 'HEAD') {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
+    return;
+  }
+  next();
+}
+
 migrateLegacyDataIfNeeded();
 seedSharedDemoDataIfNeeded();
 
@@ -1295,7 +1422,13 @@ app.post('/api/login', (req, res) => {
   res.json({ success: true, token, currentUser });
 });
 
+// Auto-session minting — only available when DEMO_MODE=true (never in production)
 app.post('/api/admin/session', (req, res) => {
+  if (!DEMO_MODE) {
+    res.status(403).json({ error: 'Auto-session not available in production.' });
+    return;
+  }
+
   const user = getDefaultAdminUser();
 
   if (!user) {
@@ -1304,12 +1437,17 @@ app.post('/api/admin/session', (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  const currentUser = getSafeUser(user);
+  const currentUser = { ...getSafeUser(user), isDemo: true };
   authTokens.set(token, currentUser);
   res.json({ success: true, token, currentUser });
 });
 
 app.post('/api/fisio/session', (req, res) => {
+  if (!DEMO_MODE) {
+    res.status(403).json({ error: 'Auto-session not available in production.' });
+    return;
+  }
+
   const user = getDefaultFisioAccessUser();
 
   if (!user) {
@@ -1318,12 +1456,13 @@ app.post('/api/fisio/session', (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  const currentUser = getSafeUser(user);
+  const currentUser = { ...getSafeUser(user), isDemo: true };
   authTokens.set(token, currentUser);
   res.json({ success: true, token, currentUser });
 });
 
 app.use('/api', (req, res, next) => {
+  // Auto-session paths are only reachable when DEMO_MODE is set; they 403 otherwise.
   if (req.path === '/login' || req.path === '/admin/session' || req.path === '/fisio/session') {
     next();
     return;
@@ -1331,6 +1470,11 @@ app.use('/api', (req, res, next) => {
 
   requireAuth(req, res, next);
 });
+
+// Demo users (tokens from auto-session) may read any route but cannot mutate data.
+// This covers all /api/* paths uniformly; individual write routes also use requireAdmin
+// where a real admin role is required regardless of demo status.
+app.use('/api', denyDemoWrites);
 
 app.get(['/api/intake/submissions', '/api/admin/intake/submissions'], async (req, res) => {
   try {
@@ -1409,7 +1553,7 @@ app.get(['/api/intake/profiles/:profileId/documents', '/api/admin/intake/profile
   }
 });
 
-app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submissions/:id/regenerate-pdf'], async (req, res) => {
+app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submissions/:id/regenerate-pdf'], requireAdmin, async (req, res) => {
   const submissionId = String(req.params.id || '').trim();
 
   if (!submissionId) {
@@ -1498,7 +1642,7 @@ app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submi
   }
 });
 
-app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:id/review'], async (req, res) => {
+app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:id/review'], requireAdmin, async (req, res) => {
   const submissionId = String(req.params.id || '').trim();
   const action = req.body?.action === 'archive' ? 'archive' : 'review';
   const reviewerNotes = req.body?.reviewerNotes;
@@ -1608,7 +1752,7 @@ app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:
   }
 });
 
-app.post(['/api/pacientes', '/api/fisio/pacientes'], (req, res) => {
+app.post(['/api/pacientes', '/api/fisio/pacientes'], requireFisioOrAdmin, (req, res) => {
   const { id, fechaNacimiento } = req.body;
   if (!id || !fechaNacimiento) return res.status(400).json({ error: 'Faltan campos' });
   const codigoPaciente = String(id).trim().toUpperCase();
@@ -1765,7 +1909,7 @@ app.get('/api/admin/billing/profile-records', async (req, res) => {
   }
 });
 
-app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], (req, res) => {
+app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], requireFisioOrAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) return res.status(404).json({ error: 'Paciente no encontrado' });
@@ -1813,7 +1957,7 @@ app.get(['/api/sesiones/:id', '/api/fisio/sesiones/:id', '/api/admin/sesiones/:i
     return;
   }
 
-  const demoPatient = getAdminPatientDirectory().find((patient) => patient.id === id && patient.isDemo);
+  const demoPatient = getAdminDemoPacientes().find((patient) => patient.id === id);
   if (demoPatient) {
     res.json({ id, pacienteId: `demo-patient-${id}`, sesiones: demoPatient.sesiones || [], isDemo: true });
     return;
@@ -1835,7 +1979,66 @@ app.get(['/api/pdf/:id/:fecha', '/api/fisio/pdf/:id/:fecha'], (req, res) => {
   res.download(pdfPath, `${id}_${fecha}.pdf`);
 });
 
-app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], (req, res) => {
+// Walk-in PDF: generates a PDF for an unregistered patient, persists a temporary
+// record for 24 h pending admin review, and records an audit entry.
+app.post(['/api/pdf/walk-in', '/api/fisio/pdf/walk-in'], requireFisioOrAdmin, (req, res) => {
+  const fechaStr = String(req.body.fecha || fechaHoy()).trim();
+  const ficha = hydrateFichaCampos(req.body);
+
+  const walkinRecord = createWalkinRecord({ ficha, actor: req.currentUser });
+  auditFisioWrite({ action: 'walkin_pdf_generate', tempRecordId: walkinRecord.id, actor: req.currentUser, changedFields: [] });
+
+  const tempId = walkinRecord.id;
+
+  const doc = new PDFDocument({ margin: 60, size: 'A4' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${tempId}_sesion_rapida.pdf"`);
+  doc.pipe(res);
+
+  doc.rect(0, 0, doc.page.width, 80).fill('#0F6E56');
+  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('FisioApp', 60, 25);
+  doc.fillColor('#9FE1CB').font('Helvetica').fontSize(11).text('Sesión sin registro previo', 60, 52);
+  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10)
+    .text('Sin expediente asignado', 60, 25, { align: 'right' });
+  doc.fillColor('#9FE1CB').fontSize(10)
+    .text(`Fecha: ${fechaStr.split('-').reverse().join('/')}`, 60, 40, { align: 'right' });
+  doc.moveDown(4);
+
+  const seccion = (titulo, rows) => {
+    doc.fillColor('#0F6E56').font('Helvetica-Bold').fontSize(11).text(titulo.toUpperCase(), { characterSpacing: 1 });
+    doc.moveDown(0.3);
+    doc.rect(60, doc.y, doc.page.width - 120, 0.5).fill('#9FE1CB');
+    doc.moveDown(0.5);
+    rows.forEach(({ label, value }) => {
+      doc.fillColor('#2C2C2A').font('Helvetica-Bold').fontSize(10).text(`${label}:`, { continued: true });
+      doc.font('Helvetica').text(` ${value || '—'}`, { lineGap: 4 });
+      doc.moveDown(0.35);
+    });
+    doc.moveDown(1.5);
+  };
+
+  seccion('Datos personales', [
+    { label: 'Apellidos', value: ficha.apellidos },
+    { label: 'Nombre', value: ficha.nombre },
+    { label: 'Edad', value: ficha.edad },
+    { label: 'Sexo', value: ficha.sexo },
+    { label: 'Profesión', value: ficha.profesion },
+    { label: 'Diagnóstico médico', value: ficha.diagnosticoMedico },
+  ]);
+  seccion('Historia clínica y exploración', [
+    { label: 'Historia clínica', value: ficha.historiaClinica },
+    { label: 'Anamnesis', value: ficha.anamnesis },
+  ]);
+  seccion('Problemas y tratamiento', [
+    { label: 'Diagnóstico fisioterápico', value: ficha.problemasFisioterapeuticos },
+    { label: 'Plan de tratamiento', value: ficha.planTratamiento },
+    { label: 'Evolución y exploración', value: ficha.evolucionExploracionTratamiento },
+  ]);
+
+  doc.end();
+});
+
+app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], requireFisioOrAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) {
@@ -1968,6 +2171,78 @@ app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], (req, res) => {
   doc.end();
 });
 
+
+// ─── Admin: audit log ────────────────────────────────────────────────────────
+
+app.get('/api/admin/audit', requireAdmin, (req, res) => {
+  const log = readAuditLog();
+  const limit = Math.min(Number(req.query.limit) || 200, 1000);
+  const patientId = req.query.patientId ? String(req.query.patientId) : null;
+  const filtered = patientId ? log.filter((e) => e.patientId === patientId || e.tempRecordId === patientId) : log;
+  res.json(filtered.slice(-limit).reverse());
+});
+
+// ─── Admin: walk-in temporary records ────────────────────────────────────────
+
+app.get('/api/admin/walkin', requireAdmin, (req, res) => {
+  const includeExpired = req.query.includeExpired === 'true';
+  res.json(listWalkinRecords({ includeExpired }));
+});
+
+app.get('/api/admin/walkin/:id', requireAdmin, (req, res) => {
+  const record = getWalkinRecord(String(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Registro temporal no encontrado' });
+  res.json({ ...record, expired: isWalkinExpired(record) });
+});
+
+// Convert a walk-in record into a real patient + session record.
+app.post('/api/admin/walkin/:id/convert', requireAdmin, (req, res) => {
+  const record = getWalkinRecord(String(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Registro temporal no encontrado' });
+  if (record.convertedTo) return res.status(409).json({ error: 'Ya fue convertido', convertedTo: record.convertedTo });
+  if (record.discardedAt) return res.status(409).json({ error: 'El registro fue descartado' });
+  if (isWalkinExpired(record)) return res.status(410).json({ error: 'El registro temporal ha expirado' });
+
+  const { codigoPaciente, fechaNacimiento } = req.body || {};
+  if (!codigoPaciente || !fechaNacimiento) {
+    return res.status(400).json({ error: 'Se requieren codigoPaciente y fechaNacimiento para convertir' });
+  }
+  const normalizedCode = String(codigoPaciente).trim().toUpperCase();
+  if (getPatientByCode(normalizedCode)) {
+    return res.status(409).json({ error: 'ID de paciente ya existe' });
+  }
+
+  const patientRecord = createPatientRecord({ codigoPaciente: normalizedCode, fechaNacimiento, currentUser: req.currentUser });
+  const fecha = record.ficha?.fecha || fechaHoy();
+  const sessionRecord = persistSessionRecord({ patientRecord, fecha, data: record.ficha || {}, currentUser: req.currentUser });
+
+  const nowIso = new Date().toISOString();
+  updateWalkinRecord({ ...record, convertedTo: patientRecord.id, status: 'converted', discardedAt: null });
+  auditFisioWrite({
+    action: 'walkin_convert',
+    patientId: patientRecord.id,
+    tempRecordId: record.id,
+    sessionDate: fecha,
+    actor: req.currentUser,
+    changedFields: [],
+  });
+
+  res.json({ ok: true, patientId: patientRecord.id, codigoPaciente: normalizedCode, sessionId: sessionRecord.id, fecha });
+});
+
+// Discard a walk-in record.
+app.post('/api/admin/walkin/:id/discard', requireAdmin, (req, res) => {
+  const record = getWalkinRecord(String(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Registro temporal no encontrado' });
+  if (record.convertedTo) return res.status(409).json({ error: 'Ya fue convertido, no se puede descartar' });
+  if (record.discardedAt) return res.status(409).json({ error: 'Ya fue descartado' });
+
+  const nowIso = new Date().toISOString();
+  updateWalkinRecord({ ...record, status: 'discarded', discardedAt: nowIso });
+  auditFisioWrite({ action: 'walkin_discard', tempRecordId: record.id, actor: req.currentUser, changedFields: [] });
+
+  res.json({ ok: true });
+});
 
 if (fs.existsSync(path.join(FRONTEND_DIR, 'index.html'))) {
   app.get('/', (req, res) => {

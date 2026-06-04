@@ -23,8 +23,9 @@ test.describe("internal apps split", () => {
     await page.goto(buildPageUrl(starterConfig.baseUrl, "/admin"), { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText(/hola .* esto es lo que te espera hoy/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Facturas$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Pacientes$/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Contabilidad$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Resumen$/ })).toBeVisible();
     await expect(page.getByText(/tareas pendientes de hoy/i)).toBeVisible();
     await expect(page.getByText(/introduce la contraseña/i)).toHaveCount(0);
 

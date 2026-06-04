@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CampoFicha,
   FICHA_DEFAULTS,
@@ -26,7 +26,13 @@ import {
 const FISIO_API = '/api/fisio';
 const FISIO_AUTH_SCOPE = 'fisio';
 
-function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
+const DEMO_PATIENTS = [
+  { id: 'CLI-1001', displayName: 'Pepito', fechaNacimiento: '1990-04-12', sesiones: ['2026-06-02', '2026-05-21', '2026-05-10'] },
+  { id: 'CLI-1002', displayName: 'Fulanita', fechaNacimiento: '1988-09-03', sesiones: ['2026-05-30', '2026-05-16', '2026-05-02'] },
+  { id: 'CLI-1003', displayName: 'Menganito', fechaNacimiento: '1995-01-24', sesiones: ['2026-06-01', '2026-05-20', '2026-05-08'] },
+];
+
+function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onSesionRapida, isDemo }) {
   const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -43,11 +49,14 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         const res = await apiFetch('/pacientes', {}, FISIO_API, FISIO_AUTH_SCOPE);
         const data = await res.json();
         if (!cancelled) {
-          setPacientes(Array.isArray(data) ? data : []);
+          const real = Array.isArray(data) ? data : [];
+          const ids = new Set(real.map((p) => p.id));
+          const padded = [...real, ...DEMO_PATIENTS.filter((p) => !ids.has(p.id))];
+          setPacientes(padded);
         }
       } catch {
         if (!cancelled) {
-          setPacientes([]);
+          setPacientes(DEMO_PATIENTS);
         }
       } finally {
         if (!cancelled) {
@@ -95,6 +104,15 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
           Trabajo clínico diario sobre pacientes, sesiones y PDFs.
         </p>
       </div>
+
+      {isDemo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', marginBottom: 20, background: '#fff8ec', border: '1px solid #f0d080', borderRadius: 10 }}>
+          <span style={{ fontSize: 16 }}>🔒</span>
+          <span style={{ fontSize: 13, color: '#7a5a00' }}>
+            Solo accesible para autorizados con inicio de sesión propio. Estás en modo demo.
+          </span>
+        </div>
+      )}
 
       <div style={s.card}>
         <div style={s.cardHeader}>
@@ -151,11 +169,26 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         )}
       </div>
 
-      <div style={{ textAlign: 'center', marginTop: 24 }}>
-        <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 12 }}>¿Paciente nuevo?</p>
-        <button style={s.btnPrimary} onClick={onNuevoPaciente}>
-          <IconPlus size={15} />
-          Crear paciente
+      {!isDemo && (
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 12 }}>¿Paciente nuevo?</p>
+          <button style={s.btnPrimary} onClick={onNuevoPaciente}>
+            <IconPlus size={15} />
+            Crear paciente
+          </button>
+        </div>
+      )}
+
+      <div style={{ ...s.card, marginTop: 16, border: '1px dashed var(--border)', background: 'transparent' }}>
+        <div style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 10 }}>
+          ⚠️ <strong>No recomendado</strong> — para pacientes que acuden sin haber completado el registro previo.
+          Se recomienda que el paciente complete el formulario de registro antes de la sesión.
+        </div>
+        <button
+          style={{ ...s.btnSecondary, width: '100%', justifyContent: 'center' }}
+          onClick={onSesionRapida}
+        >
+          Continuar con nuevo paciente sin registro
         </button>
       </div>
 
@@ -201,6 +234,111 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function VistaSesionRapida({ onVolver, isDemo }) {
+  const [campos, setCampos] = useState(FICHA_DEFAULTS);
+  const [generandoPDF, setGenerandoPDF] = useState(false);
+  const [infoPDF, setInfoPDF] = useState(null);
+  const [errorPDF, setErrorPDF] = useState('');
+  const [demoMsg, setDemoMsg] = useState('');
+
+  const tempId = useMemo(() => `WALK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`, []);
+
+  const actualizarCampo = (campo, valor) => {
+    if (isDemo) return;
+    setCampos((prev) => ({ ...prev, [campo]: valor }));
+  };
+
+  const generarPDF = async () => {
+    if (isDemo) {
+      setDemoMsg('Aquí se genera la ficha con tu formato elegido');
+      return;
+    }
+    setGenerandoPDF(true);
+    setErrorPDF('');
+    setInfoPDF(null);
+    try {
+      const res = await apiFetch('/pdf/walk-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...campos, fecha: new Date().toISOString().slice(0, 10) }),
+      }, FISIO_API, FISIO_AUTH_SCOPE);
+      if (!res.ok) throw new Error('No se pudo generar el PDF');
+      const blob = await res.blob();
+      if (!blob.size) throw new Error('El PDF llegó vacío');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${tempId}_sesion_rapida.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+      setInfoPDF({ downloaded: true });
+    } catch {
+      setErrorPDF('No se pudo generar el PDF.');
+    } finally {
+      setGenerandoPDF(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <button style={s.btnGhost} onClick={onVolver}><IconBack size={15} /></button>
+        <span style={{ fontSize: 16, fontWeight: 500 }}>Sesión sin registro</span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', marginBottom: 20, background: '#fff8ec', border: '1px solid #f0d080', borderRadius: 10 }}>
+        <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+        <div style={{ fontSize: 13, color: '#7a5a00', lineHeight: 1.5 }}>
+          <strong>No recomendado.</strong> Usa esta opción solo si el paciente acude sin haberse registrado previamente.
+          Se recomienda pedirle que complete el formulario de registro antes o después de la sesión.
+          Esta ficha no quedará vinculada a ningún expediente.
+        </div>
+      </div>
+
+      {demoMsg && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#f0f6ff', border: '1px solid #c8dcf8', borderRadius: 10 }}>
+          <span style={{ fontSize: 13, color: '#2f5a9e' }}>💡 {demoMsg}</span>
+          <button style={{ ...s.btnGhost, fontSize: 12 }} onClick={() => setDemoMsg('')}>✕</button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
+          <IconPDF size={15} />
+          {generandoPDF ? 'Generando...' : 'Generar PDF'}
+        </button>
+      </div>
+
+      {errorPDF && <p style={{ fontSize: 13, color: '#D85A30', marginBottom: 12 }}>{errorPDF}</p>}
+
+      <div style={s.card}>
+        <div style={s.cardHeader}><span style={s.cardTitle}>Registro de fisioterapia</span></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <CampoFicha label="Apellidos" value={campos.apellidos} onChange={(v) => actualizarCampo('apellidos', v)} placeholder="Apellidos del paciente" readOnly={isDemo} />
+          <CampoFicha label="Nombre" value={campos.nombre} onChange={(v) => actualizarCampo('nombre', v)} placeholder="Nombre del paciente" readOnly={isDemo} />
+          <CampoFicha label="Edad" value={campos.edad} onChange={(v) => actualizarCampo('edad', v)} placeholder="Edad" readOnly={isDemo} />
+          <CampoFicha label="Sexo" value={campos.sexo} onChange={(v) => actualizarCampo('sexo', v)} placeholder="Sexo" readOnly={isDemo} />
+          <CampoFicha label="Diagnóstico médico" value={campos.diagnosticoMedico} onChange={(v) => actualizarCampo('diagnosticoMedico', v)} placeholder="Diagnóstico médico" readOnly={isDemo} />
+          <CampoFicha label="Profesión" value={campos.profesion} onChange={(v) => actualizarCampo('profesion', v)} placeholder="Profesión" readOnly={isDemo} />
+        </div>
+      </div>
+
+      <SeccionDesplegable title="Historia clínica y exploración" subtitle="Bloque desplegable">
+        <CampoFicha label="Historia clínica" value={campos.historiaClinica} onChange={(v) => actualizarCampo('historiaClinica', v)} placeholder="Historia clínica" multiline readOnly={isDemo} />
+        <CampoFicha label="Anamnesis" value={campos.anamnesis} onChange={(v) => actualizarCampo('anamnesis', v)} placeholder="Anamnesis" multiline readOnly={isDemo} />
+      </SeccionDesplegable>
+
+      <SeccionDesplegable title="Problemas y tratamiento" subtitle="Bloque desplegable">
+        <CampoFicha label="Diagnóstico fisioterápico" value={campos.problemasFisioterapeuticos} onChange={(v) => actualizarCampo('problemasFisioterapeuticos', v)} placeholder="Problemas" multiline readOnly={isDemo} />
+        <CampoFicha label="Plan de tratamiento" value={campos.planTratamiento} onChange={(v) => actualizarCampo('planTratamiento', v)} placeholder="Plan de tratamiento" multiline readOnly={isDemo} />
+        <CampoFicha label="Evolución y exploración" value={campos.evolucionExploracionTratamiento} onChange={(v) => actualizarCampo('evolucionExploracionTratamiento', v)} placeholder="Evolución" multiline readOnly={isDemo} />
+      </SeccionDesplegable>
     </div>
   );
 }
@@ -276,7 +414,7 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
   );
 }
 
-function VistaFicha({ pacienteId, onVolver }) {
+function VistaFicha({ pacienteId, onVolver, isDemo }) {
   const [sesiones, setSesiones] = useState([]);
   const [sesionActiva, setSesionActiva] = useState(null);
   const [campos, setCampos] = useState(FICHA_DEFAULTS);
@@ -287,6 +425,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const [errorPDF, setErrorPDF] = useState('');
   const [infoPDF, setInfoPDF] = useState(null);
   const [ultimaSesionBase, setUltimaSesionBase] = useState(FICHA_DEFAULTS);
+  const [demoMsg, setDemoMsg] = useState('');
 
   useEffect(() => {
     apiFetch(`/sesiones/${pacienteId}`, {}, FISIO_API, FISIO_AUTH_SCOPE)
@@ -297,8 +436,13 @@ function VistaFicha({ pacienteId, onVolver }) {
         if ((d.sesiones || []).includes(hoy)) {
           cargarSesion(hoy);
         } else if ((d.sesiones || []).length > 0) {
-          cargarSesionBase((d.sesiones || [])[0]);
-          abrirNuevaSesionDesdeBase((d.sesiones || [])[0]);
+          // For demo patients load the most recent session directly instead of opening a blank new one
+          if (d.isDemo) {
+            cargarSesion((d.sesiones || [])[0]);
+          } else {
+            cargarSesionBase((d.sesiones || [])[0]);
+            abrirNuevaSesionDesdeBase((d.sesiones || [])[0]);
+          }
         } else {
           setSesionActiva('nueva');
           setEditable(true);
@@ -379,7 +523,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const debouncedGuardar = useCallback(debounce(guardarAhora, 900), [guardarAhora]);
 
   const actualizarCampo = (campo, valor) => {
-    if (!editable) return;
+    if (!editable || isDemo) return;
     const nuevoCampos = { ...campos, [campo]: valor };
     setCampos(nuevoCampos);
 
@@ -470,60 +614,68 @@ function VistaFicha({ pacienteId, onVolver }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {!editable && sesionActiva !== 'nueva' && (
-            <button style={s.btnSecondary} onClick={() => setEditable(true)}>
+            <button style={{ ...s.btnSecondary, ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={isDemo ? undefined : () => setEditable(true)} disabled={isDemo}>
               Editar
             </button>
           )}
-          {editable && sesionActiva !== 'nueva' && (
+          {editable && sesionActiva !== 'nueva' && !isDemo && (
             <>
-              <button style={s.btnSecondary} onClick={cancelarEdicion}>
-                Cancelar
-              </button>
-              <button style={s.btnPrimary} onClick={guardarSesionActual}>
-                Guardar
-              </button>
+              <button style={s.btnSecondary} onClick={cancelarEdicion}>Cancelar</button>
+              <button style={s.btnPrimary} onClick={guardarSesionActual}>Guardar</button>
             </>
           )}
-          <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
+          <button
+            style={s.btnPrimary}
+            onClick={isDemo ? () => setDemoMsg('Aquí se genera la ficha con tu formato elegido') : generarPDF}
+            disabled={generandoPDF}
+          >
             <IconPDF size={15} />
             {generandoPDF ? 'Generando...' : 'Generar PDF'}
           </button>
         </div>
       </div>
 
-      <div style={{ ...s.card, marginBottom: 20 }}>
-        <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Sesiones</span>
+      {demoMsg && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#f0f6ff', border: '1px solid #c8dcf8', borderRadius: 10 }}>
+          <span style={{ fontSize: 13, color: '#2f5a9e' }}>💡 {demoMsg}</span>
+          <button style={{ ...s.btnGhost, fontSize: 12, color: '#7a99cc' }} onClick={() => setDemoMsg('')}>✕</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
-          <div>
-            <label style={s.label}>Abrir sesión guardada</label>
-            <select
-              style={s.select}
-              value={sesionActiva === 'nueva' ? '' : (sesionActiva || '')}
-              onChange={(e) => {
-                if (e.target.value) {
-                  cargarSesion(e.target.value);
-                }
-              }}
-            >
-              <option value="">Selecciona una sesión</option>
-              {sesiones.map((fecha) => (
-                <option key={fecha} value={fecha}>
-                  {formatFecha(fecha)}
-                </option>
-              ))}
-            </select>
-          </div>
+      )}
+
+      <div style={{ ...s.card, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
+          <span style={s.cardTitle}>Sesiones</span>
           <button
-            onClick={nuevaSesion}
-            style={{
-              ...s.btnPrimary,
-              whiteSpace: 'nowrap',
-            }}
+            onClick={isDemo ? () => setDemoMsg('Para crear nuevas sesiones necesitas iniciar sesión con tu cuenta') : nuevaSesion}
+            style={{ ...s.btnPrimary, padding: '6px 14px', fontSize: 13 }}
           >
-            <IconPlus size={13} /> Nueva sesión
+            <IconPlus size={12} /> Nueva sesión
           </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sesiones.map((fecha) => {
+            const activa = sesionActiva === fecha;
+            return (
+              <button
+                key={fecha}
+                onClick={() => cargarSesion(fecha)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', border: `1px solid ${activa ? 'var(--teal-light)' : 'var(--border)'}`,
+                  borderRadius: 'var(--radius-sm)', background: activa ? 'var(--teal-pale)' : 'var(--bg)',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: activa ? 'var(--teal-mid)' : 'var(--gray-900)', fontWeight: activa ? 600 : 400 }}>
+                  {formatFecha(fecha)}
+                </span>
+                {activa && <span style={{ fontSize: 11, color: 'var(--teal-mid)', fontWeight: 500 }}>activa</span>}
+              </button>
+            );
+          })}
+          {sesiones.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--gray-600)' }}>No hay sesiones guardadas.</p>
+          )}
         </div>
       </div>
 
@@ -707,9 +859,11 @@ export function FisioApp() {
           <VistaBuscador
             onSeleccionarPaciente={abrirFicha}
             onNuevoPaciente={() => setVista('crear')}
+            onSesionRapida={() => setVista('sesion-rapida')}
+            isDemo={Boolean(currentUser?.isDemo)}
           />
         )}
-        {vista === 'crear' && (
+        {vista === 'crear' && !currentUser?.isDemo && (
           <VistaCrearPaciente
             onVolver={() => setVista('buscar')}
             onCreado={abrirFicha}
@@ -719,6 +873,13 @@ export function FisioApp() {
           <VistaFicha
             pacienteId={pacienteActivo}
             onVolver={() => setVista('buscar')}
+            isDemo={Boolean(currentUser?.isDemo)}
+          />
+        )}
+        {vista === 'sesion-rapida' && (
+          <VistaSesionRapida
+            onVolver={() => setVista('buscar')}
+            isDemo={Boolean(currentUser?.isDemo)}
           />
         )}
       </main>
