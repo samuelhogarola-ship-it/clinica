@@ -317,8 +317,13 @@ function VistaFicha({ pacienteId, onVolver, isDemo }) {
         if ((d.sesiones || []).includes(hoy)) {
           cargarSesion(hoy);
         } else if ((d.sesiones || []).length > 0) {
-          cargarSesionBase((d.sesiones || [])[0]);
-          abrirNuevaSesionDesdeBase((d.sesiones || [])[0]);
+          // For demo patients load the most recent session directly instead of opening a blank new one
+          if (d.isDemo) {
+            cargarSesion((d.sesiones || [])[0]);
+          } else {
+            cargarSesionBase((d.sesiones || [])[0]);
+            abrirNuevaSesionDesdeBase((d.sesiones || [])[0]);
+          }
         } else {
           setSesionActiva('nueva');
           setEditable(true);

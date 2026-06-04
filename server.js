@@ -1853,7 +1853,7 @@ app.get(['/api/sesiones/:id', '/api/fisio/sesiones/:id', '/api/admin/sesiones/:i
     return;
   }
 
-  const demoPatient = getAdminPatientDirectory().find((patient) => patient.id === id && patient.isDemo);
+  const demoPatient = getAdminDemoPacientes().find((patient) => patient.id === id);
   if (demoPatient) {
     res.json({ id, pacienteId: `demo-patient-${id}`, sesiones: demoPatient.sesiones || [], isDemo: true });
     return;
