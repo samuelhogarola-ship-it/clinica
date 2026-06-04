@@ -772,17 +772,14 @@ export function FisioApp() {
       setLoginRequired(false);
 
       try {
-        let runtimeConfig;
+        let runtimeConfig = null;
         try {
           runtimeConfig = await getRuntimeConfig();
         } catch {
-          if (!cancelled) {
-            setLoginRequired(true);
-          }
-          return;
+          runtimeConfig = null;
         }
 
-        if (!runtimeConfig.demoMode) {
+        if (runtimeConfig && !runtimeConfig.demoMode) {
           if (!cancelled) {
             setLoginRequired(true);
           }
@@ -793,6 +790,12 @@ export function FisioApp() {
         const data = await res.json();
 
         if (!res.ok || !data.success || !data.token || !data.currentUser) {
+          if (res.status === 403) {
+            if (!cancelled) {
+              setLoginRequired(true);
+            }
+            return;
+          }
           throw new Error(data.error || 'No se pudo abrir la app fisio.');
         }
 
