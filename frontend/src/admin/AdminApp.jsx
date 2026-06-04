@@ -279,6 +279,15 @@ function VistaResumen({ currentUser }) {
   }).format(new Date());
   const pendingTasks = tasks.filter((task) => !task.done);
   const calendarDays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const today = new Date();
+  const todayDate = today.getDate();
+  const calYear = today.getFullYear();
+  const calMonth = today.getMonth();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  // getDay(): 0=Sun,1=Mon...6=Sat → convert to Mon-first offset
+  const firstDow = new Date(calYear, calMonth, 1).getDay();
+  const calOffset = (firstDow + 6) % 7; // 0=Mon…6=Sun
+  const calMonthLabel = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' }).format(today);
   const addTask = () => {
     const nextText = draftTask.trim();
     if (!nextText) return;
@@ -313,8 +322,9 @@ function VistaResumen({ currentUser }) {
       <div style={adminShell.contentInner}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: 16, marginBottom: 18 }}>
           <div style={adminShell.whiteCard}>
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid #e6ebf0', fontSize: 16, fontWeight: 700, color: '#4b5a68' }}>
-              Calendario
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid #e6ebf0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#4b5a68' }}>Calendario</span>
+              <span style={{ fontSize: 12, color: '#7f8c99', textTransform: 'capitalize' }}>{calMonthLabel}</span>
             </div>
             <div style={{ padding: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
@@ -325,18 +335,20 @@ function VistaResumen({ currentUser }) {
                 ))}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
-                {Array.from({ length: 35 }).map((_, index) => {
-                  const isToday = index === 17;
+                {Array.from({ length: calOffset + daysInMonth }).map((_, index) => {
+                  const dayNum = index - calOffset + 1;
+                  const isDay = dayNum >= 1;
+                  const isToday = dayNum === todayDate;
                   return (
                     <div
                       key={index}
                       style={{
-                        minHeight: 58,
-                        borderRadius: 10,
-                        border: '1px solid #e4e9ef',
-                        background: isToday ? '#edf4ff' : '#fafbfd',
+                        minHeight: 42,
+                        borderRadius: 8,
+                        border: isDay ? '1px solid #e4e9ef' : 'none',
+                        background: isToday ? '#edf4ff' : isDay ? '#fafbfd' : 'transparent',
                         boxShadow: isToday ? 'inset 0 0 0 1px #4a86e8' : 'none',
-                        padding: '8px 9px',
+                        padding: '6px 7px',
                         fontSize: 12,
                         color: isToday ? '#4a86e8' : '#8a96a3',
                         display: 'flex',
@@ -344,15 +356,12 @@ function VistaResumen({ currentUser }) {
                         justifyContent: 'space-between',
                       }}
                     >
-                      <span>{index + 1 <= 30 ? index + 1 : ''}</span>
-                      {isToday ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4a86e8' }} /> : null}
+                      {isDay && <span style={{ fontWeight: isToday ? 700 : 400 }}>{dayNum}</span>}
+                      {isToday && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4a86e8', marginTop: 2 }} />}
                     </div>
                   );
                 })}
               </div>
-              <p style={{ fontSize: 13, color: '#7f8c99', marginTop: 14 }}>
-                Placeholder visual del calendario. Se puede conectar después si realmente lo necesitáis.
-              </p>
             </div>
           </div>
 
