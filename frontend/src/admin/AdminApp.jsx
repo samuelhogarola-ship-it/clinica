@@ -1415,6 +1415,7 @@ function VistaContabilidad({ overview }) {
 }
 
 function VistaSubmissions({ currentUser }) {
+  const isDemo = Boolean(currentUser?.isDemo);
   const [submissions, setSubmissions] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1714,14 +1715,21 @@ function VistaSubmissions({ currentUser }) {
                   {error && <p style={{ fontSize: 13, color: '#D85A30', marginTop: 12 }}>{error}</p>}
                   {success && <p style={{ fontSize: 13, color: 'var(--teal-dark)', marginTop: 12 }}>{success}</p>}
 
-                  <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-                    <button style={s.btnPrimary} onClick={() => processSubmission('review')} disabled={saving}>
-                      {saving ? 'Guardando...' : 'Marcar revisado'}
-                    </button>
-                    <button style={s.btnSecondary} onClick={() => processSubmission('archive')} disabled={saving}>
-                      Archivar
-                    </button>
-                  </div>
+                  {isDemo && (
+                    <p style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 12, fontStyle: 'italic' }}>
+                      Modo demo — las acciones de revisión no están disponibles.
+                    </p>
+                  )}
+                  {!isDemo && (
+                    <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+                      <button style={s.btnPrimary} onClick={() => processSubmission('review')} disabled={saving}>
+                        {saving ? 'Guardando...' : 'Marcar revisado'}
+                      </button>
+                      <button style={s.btnSecondary} onClick={() => processSubmission('archive')} disabled={saving}>
+                        Archivar
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <SeccionDesplegable title="Datos personales" subtitle={selectedSubmission.form_version || 'sin versión'}>
@@ -1782,13 +1790,15 @@ function VistaSubmissions({ currentUser }) {
                               No se pudo firmar la descarga en este momento.
                             </span>
                           )}
-                          <button
-                            style={s.btnSecondary}
-                            onClick={() => regenerateDocument(document.submission_id)}
-                            disabled={regeneratingDocumentId === document.submission_id}
-                          >
-                            {regeneratingDocumentId === document.submission_id ? 'Regenerando...' : 'Regenerar PDF'}
-                          </button>
+                          {!isDemo && (
+                            <button
+                              style={s.btnSecondary}
+                              onClick={() => regenerateDocument(document.submission_id)}
+                              disabled={regeneratingDocumentId === document.submission_id}
+                            >
+                              {regeneratingDocumentId === document.submission_id ? 'Regenerando...' : 'Regenerar PDF'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))

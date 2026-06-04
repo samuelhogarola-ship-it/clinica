@@ -1278,9 +1278,23 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Requires a real (non-demo) authenticated admin.
 function requireAdmin(req, res, next) {
   if (!req.currentUser || normalizeText(req.currentUser.role) !== 'admin') {
     res.status(403).json({ error: 'Forbidden: admin role required.' });
+    return;
+  }
+  if (req.currentUser.isDemo) {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
+    return;
+  }
+  next();
+}
+
+// Blocks any write (non-GET/HEAD) request from a demo session.
+function denyDemoWrites(req, res, next) {
+  if (req.currentUser?.isDemo && req.method !== 'GET' && req.method !== 'HEAD') {
+    res.status(403).json({ error: 'Demo mode is read-only. Log in with a real account to make changes.' });
     return;
   }
   next();
@@ -1319,7 +1333,7 @@ app.post('/api/admin/session', (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  const currentUser = getSafeUser(user);
+  const currentUser = { ...getSafeUser(user), isDemo: true };
   authTokens.set(token, currentUser);
   res.json({ success: true, token, currentUser });
 });
@@ -1338,7 +1352,7 @@ app.post('/api/fisio/session', (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  const currentUser = getSafeUser(user);
+  const currentUser = { ...getSafeUser(user), isDemo: true };
   authTokens.set(token, currentUser);
   res.json({ success: true, token, currentUser });
 });
@@ -1353,9 +1367,10 @@ app.use('/api', (req, res, next) => {
   requireAuth(req, res, next);
 });
 
-// All /api/admin/* routes require the authenticated user to have role === 'admin'.
-// The two /api/admin/session and /api/fisio/session paths are handled before this middleware.
-app.use('/api/admin', requireAdmin);
+// Demo users (tokens from auto-session) may read any route but cannot mutate data.
+// This covers all /api/* paths uniformly; individual write routes also use requireAdmin
+// where a real admin role is required regardless of demo status.
+app.use('/api', denyDemoWrites);
 
 app.get(['/api/intake/submissions', '/api/admin/intake/submissions'], async (req, res) => {
   try {
@@ -1434,7 +1449,7 @@ app.get(['/api/intake/profiles/:profileId/documents', '/api/admin/intake/profile
   }
 });
 
-app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submissions/:id/regenerate-pdf'], async (req, res) => {
+app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submissions/:id/regenerate-pdf'], requireAdmin, async (req, res) => {
   const submissionId = String(req.params.id || '').trim();
 
   if (!submissionId) {
@@ -1523,7 +1538,7 @@ app.post(['/api/intake/submissions/:id/regenerate-pdf', '/api/admin/intake/submi
   }
 });
 
-app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:id/review'], async (req, res) => {
+app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:id/review'], requireAdmin, async (req, res) => {
   const submissionId = String(req.params.id || '').trim();
   const action = req.body?.action === 'archive' ? 'archive' : 'review';
   const reviewerNotes = req.body?.reviewerNotes;
@@ -1633,7 +1648,7 @@ app.post(['/api/intake/submissions/:id/review', '/api/admin/intake/submissions/:
   }
 });
 
-app.post(['/api/pacientes', '/api/fisio/pacientes'], (req, res) => {
+app.post(['/api/pacientes', '/api/fisio/pacientes'], requireAdmin, (req, res) => {
   const { id, fechaNacimiento } = req.body;
   if (!id || !fechaNacimiento) return res.status(400).json({ error: 'Faltan campos' });
   const codigoPaciente = String(id).trim().toUpperCase();
@@ -1790,7 +1805,7 @@ app.get('/api/admin/billing/profile-records', async (req, res) => {
   }
 });
 
-app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], (req, res) => {
+app.post(['/api/sesiones/:id', '/api/fisio/sesiones/:id'], requireAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) return res.status(404).json({ error: 'Paciente no encontrado' });
@@ -1860,7 +1875,7 @@ app.get(['/api/pdf/:id/:fecha', '/api/fisio/pdf/:id/:fecha'], (req, res) => {
   res.download(pdfPath, `${id}_${fecha}.pdf`);
 });
 
-app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], (req, res) => {
+app.post(['/api/pdf/:id', '/api/fisio/pdf/:id'], requireAdmin, (req, res) => {
   const id = String(req.params.id || '').trim().toUpperCase();
   const patientRecord = getPatientByCode(id);
   if (!patientRecord) {

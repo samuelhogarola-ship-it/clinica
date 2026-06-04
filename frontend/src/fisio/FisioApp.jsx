@@ -26,7 +26,7 @@ import {
 const FISIO_API = '/api/fisio';
 const FISIO_AUTH_SCOPE = 'fisio';
 
-function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
+function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, isDemo }) {
   const [consulta, setConsulta] = useState('');
   const [resultados, setResultados] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -151,13 +151,15 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente }) {
         )}
       </div>
 
-      <div style={{ textAlign: 'center', marginTop: 24 }}>
-        <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 12 }}>¿Paciente nuevo?</p>
-        <button style={s.btnPrimary} onClick={onNuevoPaciente}>
-          <IconPlus size={15} />
-          Crear paciente
-        </button>
-      </div>
+      {!isDemo && (
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 12 }}>¿Paciente nuevo?</p>
+          <button style={s.btnPrimary} onClick={onNuevoPaciente}>
+            <IconPlus size={15} />
+            Crear paciente
+          </button>
+        </div>
+      )}
 
       <div style={{ ...s.card, marginTop: 24 }}>
         <div style={s.cardHeader}>
@@ -276,7 +278,7 @@ function VistaCrearPaciente({ onVolver, onCreado }) {
   );
 }
 
-function VistaFicha({ pacienteId, onVolver }) {
+function VistaFicha({ pacienteId, onVolver, isDemo }) {
   const [sesiones, setSesiones] = useState([]);
   const [sesionActiva, setSesionActiva] = useState(null);
   const [campos, setCampos] = useState(FICHA_DEFAULTS);
@@ -379,7 +381,7 @@ function VistaFicha({ pacienteId, onVolver }) {
   const debouncedGuardar = useCallback(debounce(guardarAhora, 900), [guardarAhora]);
 
   const actualizarCampo = (campo, valor) => {
-    if (!editable) return;
+    if (!editable || isDemo) return;
     const nuevoCampos = { ...campos, [campo]: valor };
     setCampos(nuevoCampos);
 
@@ -469,12 +471,15 @@ function VistaFicha({ pacienteId, onVolver }) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {!editable && sesionActiva !== 'nueva' && (
+          {isDemo && (
+            <span style={{ fontSize: 12, color: 'var(--gray-600)', fontStyle: 'italic' }}>modo demo</span>
+          )}
+          {!isDemo && !editable && sesionActiva !== 'nueva' && (
             <button style={s.btnSecondary} onClick={() => setEditable(true)}>
               Editar
             </button>
           )}
-          {editable && sesionActiva !== 'nueva' && (
+          {!isDemo && editable && sesionActiva !== 'nueva' && (
             <>
               <button style={s.btnSecondary} onClick={cancelarEdicion}>
                 Cancelar
@@ -484,10 +489,12 @@ function VistaFicha({ pacienteId, onVolver }) {
               </button>
             </>
           )}
-          <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
-            <IconPDF size={15} />
-            {generandoPDF ? 'Generando...' : 'Generar PDF'}
-          </button>
+          {!isDemo && (
+            <button style={s.btnPrimary} onClick={generarPDF} disabled={generandoPDF}>
+              <IconPDF size={15} />
+              {generandoPDF ? 'Generando...' : 'Generar PDF'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -515,15 +522,17 @@ function VistaFicha({ pacienteId, onVolver }) {
               ))}
             </select>
           </div>
-          <button
-            onClick={nuevaSesion}
-            style={{
-              ...s.btnPrimary,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <IconPlus size={13} /> Nueva sesión
-          </button>
+          {!isDemo && (
+            <button
+              onClick={nuevaSesion}
+              style={{
+                ...s.btnPrimary,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <IconPlus size={13} /> Nueva sesión
+            </button>
+          )}
         </div>
       </div>
 
@@ -707,9 +716,10 @@ export function FisioApp() {
           <VistaBuscador
             onSeleccionarPaciente={abrirFicha}
             onNuevoPaciente={() => setVista('crear')}
+            isDemo={Boolean(currentUser?.isDemo)}
           />
         )}
-        {vista === 'crear' && (
+        {vista === 'crear' && !currentUser?.isDemo && (
           <VistaCrearPaciente
             onVolver={() => setVista('buscar')}
             onCreado={abrirFicha}
@@ -719,6 +729,7 @@ export function FisioApp() {
           <VistaFicha
             pacienteId={pacienteActivo}
             onVolver={() => setVista('buscar')}
+            isDemo={Boolean(currentUser?.isDemo)}
           />
         )}
       </main>
