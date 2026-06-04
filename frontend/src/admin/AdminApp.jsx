@@ -1973,7 +1973,15 @@ export function AdminApp() {
       setLoginRequired(false);
 
       try {
-        const runtimeConfig = await getRuntimeConfig();
+        let runtimeConfig;
+        try {
+          runtimeConfig = await getRuntimeConfig();
+        } catch {
+          if (!cancelled) {
+            setLoginRequired(true);
+          }
+          return;
+        }
 
         if (!runtimeConfig.demoMode) {
           if (!cancelled) {

@@ -1462,6 +1462,11 @@ app.post('/api/fisio/session', (req, res) => {
 });
 
 app.get('/api/runtime-config', (_req, res) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
   res.json({
     demoMode: DEMO_MODE,
   });

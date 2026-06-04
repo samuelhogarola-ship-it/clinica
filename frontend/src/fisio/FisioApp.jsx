@@ -111,7 +111,7 @@ function VistaBuscador({ onSeleccionarPaciente, onNuevoPaciente, onSesionRapida,
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', marginBottom: 20, background: '#fff8ec', border: '1px solid #f0d080', borderRadius: 10 }}>
           <span style={{ fontSize: 16 }}>🔒</span>
           <span style={{ fontSize: 13, color: '#7a5a00' }}>
-            Solo accesible para autorizados con inicio de sesión propio. Estás en modo demo.
+            Estás en modo demo: algunas acciones están limitadas y los cambios no se guardan como en el entorno real.
           </span>
         </div>
       )}
@@ -772,7 +772,15 @@ export function FisioApp() {
       setLoginRequired(false);
 
       try {
-        const runtimeConfig = await getRuntimeConfig();
+        let runtimeConfig;
+        try {
+          runtimeConfig = await getRuntimeConfig();
+        } catch {
+          if (!cancelled) {
+            setLoginRequired(true);
+          }
+          return;
+        }
 
         if (!runtimeConfig.demoMode) {
           if (!cancelled) {
