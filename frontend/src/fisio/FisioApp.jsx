@@ -307,6 +307,7 @@ function VistaFicha({ pacienteId, onVolver, isDemo }) {
   const [errorPDF, setErrorPDF] = useState('');
   const [infoPDF, setInfoPDF] = useState(null);
   const [ultimaSesionBase, setUltimaSesionBase] = useState(FICHA_DEFAULTS);
+  const [demoMsg, setDemoMsg] = useState('');
 
   useEffect(() => {
     apiFetch(`/sesiones/${pacienteId}`, {}, FISIO_API, FISIO_AUTH_SCOPE)
@@ -505,40 +506,58 @@ function VistaFicha({ pacienteId, onVolver, isDemo }) {
               <button style={s.btnPrimary} onClick={guardarSesionActual}>Guardar</button>
             </>
           )}
-          <button style={{ ...s.btnPrimary, ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={isDemo ? undefined : generarPDF} disabled={isDemo || generandoPDF}>
+          <button
+            style={s.btnPrimary}
+            onClick={isDemo ? () => setDemoMsg('Aquí se genera la ficha con tu formato elegido') : generarPDF}
+            disabled={generandoPDF}
+          >
             <IconPDF size={15} />
             {generandoPDF ? 'Generando...' : 'Generar PDF'}
           </button>
         </div>
       </div>
 
-      <div style={{ ...s.card, marginBottom: 20 }}>
-        <div style={s.cardHeader}>
-          <span style={s.cardTitle}>Sesiones</span>
+      {demoMsg && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#f0f6ff', border: '1px solid #c8dcf8', borderRadius: 10 }}>
+          <span style={{ fontSize: 13, color: '#2f5a9e' }}>💡 {demoMsg}</span>
+          <button style={{ ...s.btnGhost, fontSize: 12, color: '#7a99cc' }} onClick={() => setDemoMsg('')}>✕</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
-          <div>
-            <label style={s.label}>Abrir sesión guardada</label>
-            <select
-              style={s.select}
-              value={sesionActiva === 'nueva' ? '' : (sesionActiva || '')}
-              onChange={(e) => {
-                if (e.target.value) cargarSesion(e.target.value);
-              }}
-            >
-              <option value="">Selecciona una sesión</option>
-              {sesiones.map((fecha) => (
-                <option key={fecha} value={fecha}>{formatFecha(fecha)}</option>
-              ))}
-            </select>
-          </div>
+      )}
+
+      <div style={{ ...s.card, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
+          <span style={s.cardTitle}>Sesiones</span>
           <button
-            onClick={isDemo ? undefined : nuevaSesion}
-            disabled={isDemo}
-            style={{ ...s.btnPrimary, whiteSpace: 'nowrap', ...(isDemo ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
+            onClick={isDemo ? () => setDemoMsg('Para crear nuevas sesiones necesitas iniciar sesión con tu cuenta') : nuevaSesion}
+            style={{ ...s.btnPrimary, padding: '6px 14px', fontSize: 13 }}
           >
-            <IconPlus size={13} /> Nueva sesión
+            <IconPlus size={12} /> Nueva sesión
           </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sesiones.map((fecha) => {
+            const activa = sesionActiva === fecha;
+            return (
+              <button
+                key={fecha}
+                onClick={() => cargarSesion(fecha)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', border: `1px solid ${activa ? 'var(--teal-light)' : 'var(--border)'}`,
+                  borderRadius: 'var(--radius-sm)', background: activa ? 'var(--teal-pale)' : 'var(--bg)',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: activa ? 'var(--teal-mid)' : 'var(--gray-900)', fontWeight: activa ? 600 : 400 }}>
+                  {formatFecha(fecha)}
+                </span>
+                {activa && <span style={{ fontSize: 11, color: 'var(--teal-mid)', fontWeight: 500 }}>activa</span>}
+              </button>
+            );
+          })}
+          {sesiones.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--gray-600)' }}>No hay sesiones guardadas.</p>
+          )}
         </div>
       </div>
 
